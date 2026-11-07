@@ -1,0 +1,31 @@
+# Builder image for CI and build.sh --container.
+# Only tools used outside the mkosi tools tree belong here:
+#   mkosi, pacman (base)   build the tools tree
+#   curl, gnupg, zstd      fetch and verify the chaotic keyring (build.sh)
+#   git                    SOURCE_DATE_EPOCH, CI scripts
+#   python (mkosi dep)     the Python CI scripts
+#   systemd (base)         systemd-nspawn for scripts/boot-check.sh
+#   skopeo, cosign         publish, sign and attest the distrobox image
+#   shellcheck, shfmt,     the lint job
+#   ruff, yamllint
+# Dated tag, bumped by Renovate. The weekly schedule rebuilds the image for package updates.
+FROM docker.io/library/archlinux:base-20261101.0.620205
+
+LABEL org.opencontainers.image.title="garuda image-builder" \
+      org.opencontainers.image.source="https://gitlab.com/garuda-linux/tools/image-builder"
+
+RUN pacman -Syu --noconfirm --needed \
+        mkosi \
+        cosign \
+        curl \
+        git \
+        gnupg \
+        ruff \
+        shellcheck \
+        shfmt \
+        skopeo \
+        yamllint \
+        zstd \
+    && pacman -Scc --noconfirm
+
+WORKDIR /build

@@ -1,0 +1,246 @@
+stages:
+  - builder
+  - lint
+  - build
+
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      auto_cancel:
+        on_new_commit: none
+    - when: always
+
+variables:
+  BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
+  BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+
+.paths:
+  shared: &shared
+    - mkosi.conf
+    - mkosi.conf.d/**/*
+    - mkosi.sandbox/**/*
+    - mkosi.images/base/**/*
+    - build.sh
+    - lib/**/*
+    - mkosi.shared/**/*
+    - scripts/boot-check.sh
+    - scripts/editions.sh
+    - scripts/sbom.py
+    - ci/**/*
+    - .gitlab-ci.yml
+  root: &root
+    - mkosi.images/root/**/*
+
+.rules:
+  renovate: &no_renovate
+    if: $RENOVATE == "true"
+    when: never
+  schedule: &schedule
+    if: $CI_PIPELINE_SOURCE == "schedule"
+  web: &web
+    if: $CI_PIPELINE_SOURCE == "web"
+  protected: &protected_only
+    if: $CI_COMMIT_REF_PROTECTED != "true"
+    when: never
+
+builder:
+  stage: builder
+  image: docker:29-cli
+  tags: [dind]
+  rules:
+    - *no_renovate
+    - *schedule
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [ci/Containerfile]
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+      allow_failure: true
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$BUILDER_IMAGE" -f ci/Containerfile ci
+    - docker push "$BUILDER_IMAGE"
+
+lint:
+  stage: lint
+  image: $BUILDER_IMAGE
+  interruptible: true
+  rules:
+    - *no_renovate
+    - when: on_success
+  script:
+    - scripts/lint.sh
+
+flake-check:
+  stage: lint
+  image: alpine:3.24
+  tags: [nix]
+  interruptible: true
+  rules:
+    - *no_renovate
+    - when: on_success
+  before_script:
+    - . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+  script:
+    - nix flake check --no-update-lock-file --print-build-logs
+
+renovate:
+  stage: lint
+  image: renovate/renovate:44
+  rules:
+    - if: $RENOVATE == "true" && $CI_PIPELINE_SOURCE == "schedule"
+  variables:
+    RENOVATE_PLATFORM: gitlab
+    RENOVATE_ENDPOINT: $CI_API_V4_URL
+    RENOVATE_REPOSITORIES: $CI_PROJECT_PATH
+  script:
+    - renovate
+
+iso:generate:
+  stage: lint
+  image: $BUILDER_IMAGE
+  interruptible: true
+  rules:
+    - *no_renovate
+    - when: on_success
+  variables:
+    GIT_DEPTH: "50"
+  script:
+    - ci/iso_pipeline.py >iso-pipeline.yml
+  artifacts:
+    paths: [iso-pipeline.yml]
+    expire_in: 1 week
+
+iso:
+  stage: build
+  needs: [iso:generate, lint, flake-check]
+  rules:
+    - *no_renovate
+    - when: on_success
+  variables:
+    BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
+  trigger:
+    include:
+      - artifact: iso-pipeline.yml
+        job: iso:generate
+    strategy: depend
+
+.build:
+  stage: build
+  image: $BUILDER_IMAGE
+  tags: [nix-privileged]
+  resource_group: build-host
+  interruptible: true
+  timeout: 3h
+  retry:
+    max: 1
+    when: [runner_system_failure, stuck_or_timeout_failure]
+  variables:
+    RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
+  before_script:
+    - export VERSION="$(date +%Y%m%d)"
+
+distrobox:
+  extends: .build
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  rules:
+    - *protected_only
+    - *no_renovate
+    - *schedule
+    - *web
+    - if: $CI_COMMIT_MESSAGE =~ /\[build (all|distrobox)\]/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *shared
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [mkosi.profiles/distrobox/**/*]
+  script:
+    - ./build.sh distrobox
+    - scripts/boot-check.sh mkosi.output/garuda-distrobox
+    - ci/package-changes.sh distrobox mkosi.output/garuda-distrobox.manifest
+    - |
+      if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        echo "Not the default branch: built and checked, not published"
+        exit 0
+      fi
+
+      image="$CI_REGISTRY_IMAGE/garuda-distrobox"
+      echo "$CI_REGISTRY_PASSWORD" | skopeo login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      push() {
+        for attempt in 1 2 3 4 5; do
+          skopeo copy --retry-times 3 \
+            oci:mkosi.output/garuda-distrobox "docker://$image:$1" && return 0
+          echo "push of $1 failed (attempt $attempt of 5), retrying in 30 seconds"
+          sleep 30
+        done
+        return 1
+      }
+      push latest
+
+      if skopeo inspect --raw "docker://$image:$VERSION" >/dev/null 2>&1; then
+        echo "$VERSION exists already and stays as it is"
+      else
+        push "$VERSION"
+      fi
+      digest="$(skopeo inspect --format '{{.Digest}}' "docker://$image:latest")"
+
+      echo "$CI_REGISTRY_PASSWORD" | cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+      cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$image@$digest"
+      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type spdxjson \
+        --predicate mkosi.output/garuda-distrobox.spdx.json "$image@$digest"
+
+      ci/provenance.py distrobox >mkosi.output/garuda-distrobox.provenance.json
+      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 \
+        --predicate mkosi.output/garuda-distrobox.provenance.json "$image@$digest"
+  artifacts:
+    paths:
+      - mkosi.output/garuda-distrobox.manifest
+      - mkosi.output/garuda-distrobox.manifest.changes
+      - mkosi.output/garuda-distrobox.spdx.json
+    expire_in: 1 month
+
+lima:
+  extends: .build
+  rules:
+    - *protected_only
+    - *no_renovate
+    - *schedule
+    - *web
+    - if: $CI_COMMIT_MESSAGE =~ /\[build (all|lima)\]/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *shared
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *root
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [mkosi.profiles/lima/**/*]
+  script:
+    - ./build.sh lima
+    - scripts/boot-check.sh mkosi.output/root
+    - ci/package-changes.sh lima mkosi.output/garuda-lima.manifest
+    - |
+      if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        echo "Not the default branch: built and checked, not published"
+        exit 0
+      fi
+
+      file="garuda-lima-$VERSION.qcow2"
+      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-lima"
+      upload() {
+        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$file" "$packages/$1"
+      }
+
+      upload "$VERSION/$file"
+      # A fixed name under latest, so the download URL stays the same and
+      # latest holds one image instead of one per day
+      upload latest/garuda-lima.qcow2
+  artifacts:
+    paths:
+      - mkosi.output/garuda-lima.manifest
+      - mkosi.output/garuda-lima.manifest.changes
+      - mkosi.output/garuda-lima.spdx.json
+    expire_in: 1 month
+
