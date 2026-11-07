@@ -1,0 +1,20 @@
+# mkosi build output and caches
+/mkosi.output/
+/mkosi.cache/
+/mkosi.workspace/
+/mkosi.tools/
+/mkosi.tools.manifest
+# Local overrides, see mkosi.local.conf.example
+/mkosi.local.conf
+/mkosi.local/
+# Fetched by build.sh (chaotic keyring and mirrorlist)
+/mkosi.sandbox/usr/
+/mkosi.sandbox/etc/pacman.d/chaotic-mirrorlist
+# Build logs
+/*.log
+# Nix and direnv
+/.direnv/
+/.pre-commit-config.yaml
+# Misc output
+__pycache__
+.ruff_cache/

@@ -1,0 +1,29 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+indent_style = space
+indent_size = 2
+
+[{*.sh,*.chroot}]
+shell_variant = bash
+switch_case_indent = true
+
+# Bash scripts without .sh in the image trees
+[mkosi.images/*/mkosi.extra/{usr/lib/garuda/*,etc/kernel/install.d/*.install,usr/bin/snapper-sdboot,usr/lib/snapper/plugins/*}]
+shell_variant = bash
+switch_case_indent = true
+
+# Initrd and live scripts without .sh: POSIX sh, same style
+[{mkosi.images/live-initrd/mkosi.extra/usr/{bin,lib/systemd/system-generators}/*,mkosi.images/live/mkosi.extra/usr/bin/*}]
+shell_variant = posix
+switch_case_indent = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.lock]
+indent_size = unset
