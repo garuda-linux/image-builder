@@ -1,0 +1,14 @@
+[Unit]
+Description=Garuda live layers
+Documentation=file:///usr/bin/garuda-live-mount
+DefaultDependencies=no
+Requires=run-garuda-iso.mount
+After=run-garuda-iso.mount
+Before=sysroot.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The checksum and copy messages belong on the screen
+StandardOutput=journal+console
+ExecStart=/usr/bin/garuda-live-mount

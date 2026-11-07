@@ -1,0 +1,244 @@
+#!/bin/sh
+# Kernel command line options:
+#   checksum, checksum=y     verify the layer files against SHA256SUMS first
+#   copytoram, copytoram=y   copy the layer files to RAM so the boot medium can be removed,
+#                            if they fit with 2 GiB to spare
+#   garuda.sums=<sha256>     the SHA-256 of SHA256SUMS, set by build.sh. A SHA256SUMS
+#                            that does not match stops the boot.
+#   copytoram_size=<size>    size of that tmpfs (default 75%)
+#   overlay_root_size=<size> size of the writable tmpfs layer (default 75%)
+#   persistence              keep the writable layer on the ext4 partition GARUDA_PERSIST
+#                            of the boot stick, created behind the ISO if missing
+#   persistence=any          also accept GARUDA_PERSIST on another disk
+
+set -e
+
+# shellcheck source=mkosi.images/live-initrd/mkosi.extra/usr/lib/garuda-live/cmdline.sh
+. /usr/lib/garuda-live/cmdline.sh
+
+say() { echo "garuda-live: $*"; }
+
+label="$(arg garuda.label)"
+src=/run/garuda/iso/garuda-live/layers
+layers="root desktop mhwd live"
+persist_label=GARUDA_PERSIST
+
+# The disk that holds the ISO
+boot_disk() {
+  iso_dev="$(findmnt -n -o SOURCE /run/garuda/iso)"
+  disk="/dev/$(lsblk -n -o PKNAME "$iso_dev" | head -n1)"
+  [ "$disk" != /dev/ ] || disk="$iso_dev"
+  echo "$disk"
+}
+
+# The persistence partition. Only the boot stick counts, so a disk with that
+# label plugged in by someone else cannot take over the session. persistence=any
+# accepts every disk.
+find_persistence() {
+  if [ "$(arg persistence)" = any ]; then
+    blkid -l -o device -t LABEL="$persist_label" 2>/dev/null || true
+    return 0
+  fi
+  lsblk -l -n -p -o NAME,LABEL "$disk" 2>/dev/null | while read -r name fslabel; do
+    if [ "$fslabel" = "$persist_label" ]; then
+      echo "$name"
+    fi
+  done | head -n1
+}
+
+# Only touches the boot stick: the whole disk must carry the volume label of
+# this ISO. CDs and loop devices are left alone.
+# The caller runs it in an if condition, where set -e is off, also in a
+# subshell that sets it again. So every step checks its own result.
+create_persistence() (
+  case "$disk" in
+    /dev/sr* | /dev/loop*)
+      say "persistence needs a USB stick or disk, not $disk"
+      return 1
+      ;;
+  esac
+
+  if [ "$(blkid -p -s LABEL -o value "$disk" 2>/dev/null)" != "$label" ]; then
+    say "persistence: $disk is not the boot stick of $label, not changing it"
+    return 1
+  fi
+
+  # The backup GPT of the hybrid image sits at the end of the image, not of
+  # the stick, and blocks the free space behind it
+  if ! sfdisk --quiet --relocate gpt-bak-std "$disk"; then
+    say "persistence: could not move the backup GPT of $disk"
+    return 1
+  fi
+
+  # The last free area is the one behind the image
+  if ! sfdisk --list-free --bytes "$disk" >/run/garuda-free-list; then
+    say "persistence: could not read the free space of $disk"
+    return 1
+  fi
+  # shellcheck disable=SC2034 # only the size column is used
+  while read -r start end sectors size; do
+    case "$start" in
+      *[!0-9]* | '') ;;
+      *) echo "$size" ;;
+    esac
+  done </run/garuda-free-list >/run/garuda-free
+  free="$(tail -n1 /run/garuda-free)"
+
+  if [ "${free:-0}" -lt 1073741824 ]; then
+    say "persistence: less than 1 GiB free on $disk"
+    return 1
+  fi
+
+  say "creating the persistence partition on $disk"
+  if ! echo ',,L' | sfdisk --quiet --append --no-reread "$disk"; then
+    say "persistence: could not add a partition to $disk"
+    return 1
+  fi
+
+  # The new partition has the highest number. It gets a name, so it is found
+  # by name below and not by its position.
+  num="$(sfdisk --dump "$disk" | sed -n 's|^/dev/[^ ]*[^0-9]\([0-9][0-9]*\) :.*|\1|p' | sort -n | tail -n1)"
+  if [ -z "$num" ] || ! sfdisk --quiet --part-label "$disk" "$num" "$persist_label"; then
+    say "persistence: could not name the new partition on $disk"
+    return 1
+  fi
+  if ! { partx --add "$disk" 2>/dev/null || partx --update "$disk"; }; then
+    say "persistence: the kernel did not take the new partition table of $disk"
+    return 1
+  fi
+  udevadm settle
+
+  part="$(lsblk -l -n -p -o NAME,PARTLABEL "$disk" | while read -r name partlabel; do
+    if [ "$partlabel" = "$persist_label" ]; then
+      echo "$name"
+    fi
+  done | head -n1)"
+  if [ -z "$part" ]; then
+    say "persistence: the new partition does not show up on $disk"
+    return 1
+  fi
+
+  # Never format a partition that already holds a file system
+  if [ -n "$(blkid -p -s TYPE -o value "$part" 2>/dev/null)" ]; then
+    say "persistence: $part already holds a file system, not formatting it"
+    return 1
+  fi
+  if ! mkfs.ext4 -q -L "$persist_label" "$part"; then
+    say "persistence: could not format $part"
+    return 1
+  fi
+  udevadm settle
+)
+
+mkdir -p /run/garuda/rw
+persistent=no
+
+if flag persistence || [ "$(arg persistence)" = any ]; then
+  udevadm settle
+  disk="$(boot_disk)"
+  dev="$(find_persistence)"
+  # The partitions of a USB stick can show up after udev settled
+  tries=0
+  while [ -z "$dev" ] && [ "$tries" -lt 10 ]; do
+    sleep 1
+    udevadm settle
+    dev="$(find_persistence)"
+    tries=$((tries + 1))
+  done
+  if [ -z "$dev" ] && create_persistence; then
+    dev="$(find_persistence)"
+  fi
+
+  if [ -n "$dev" ]; then
+    # One directory per ISO, so a new ISO version starts with a clean state
+    mkdir -p /run/garuda/persist
+    if mount -t ext4 "$dev" /run/garuda/persist &&
+      mkdir -p "/run/garuda/persist/$label" &&
+      mount --bind "/run/garuda/persist/$label" /run/garuda/rw; then
+      persistent=yes
+      say "persistence on $dev ($label)"
+    else
+      say "persistence: could not mount $dev, changes stay in RAM"
+      umount /run/garuda/persist 2>/dev/null || true
+    fi
+  else
+    say "no persistence partition, changes stay in RAM"
+  fi
+fi
+
+if [ "$persistent" = no ]; then
+  mount -t tmpfs -o "mode=0755,size=$(arg overlay_root_size | grep . || echo 75%)" garuda-live-rw /run/garuda/rw
+fi
+
+mkdir -p /run/garuda/rw/upper /run/garuda/rw/work
+
+# The tmpfs size is only a cap. Copying more than the free RAM ends in the OOM
+# killer, so the initrd, the writable layer and the live session keep 2 GiB.
+copytoram_fits() {
+  need=0
+  for layer in $layers; do
+    need=$((need + $(stat -c %s "$src/$layer.erofs")))
+  done
+
+  avail=0
+  while read -r key value _; do
+    if [ "$key" = MemAvailable: ]; then
+      avail=$((value * 1024))
+    fi
+  done </proc/meminfo
+
+  if [ $((need + 2147483648)) -gt "$avail" ]; then
+    say "copytoram: the layer files need $((need >> 20)) MiB plus 2048 MiB free, $((avail >> 20)) MiB available. Booting from the medium."
+    return 1
+  fi
+}
+
+copied=no
+if flag copytoram && copytoram_fits; then
+  say "copying the layer files to RAM"
+  mkdir -p /run/garuda/copytoram
+  mount -t tmpfs -o "mode=0755,size=$(arg copytoram_size | grep . || echo 75%)" copytoram /run/garuda/copytoram
+
+  copied=yes
+  for file in SHA256SUMS $(for layer in $layers; do echo "$layer.erofs"; done); do
+    cp "$src/$file" /run/garuda/copytoram/ || copied=no
+  done
+
+  if [ "$copied" = yes ]; then
+    src=/run/garuda/copytoram
+  else
+    say "copytoram: copying failed, booting from the medium"
+    umount /run/garuda/copytoram
+  fi
+fi
+
+# SHA256SUMS must be the one the boot entry was written for. With checksum,
+# the layer files are then checked against a list that is known to be right.
+sums="$(arg garuda.sums)"
+if [ -n "$sums" ]; then
+  actual="$(sha256sum <"$src/SHA256SUMS")"
+  if [ "${actual%% *}" != "$sums" ]; then
+    say "SHA256SUMS does not match garuda.sums= of the boot entry: the layer files were changed"
+    exit 1
+  fi
+fi
+
+# After copytoram this checks the RAM copy, so the medium is read only once
+if flag checksum; then
+  say "checking the layer files, this takes a while"
+  if ! (cd "$src" && sha256sum -c SHA256SUMS); then
+    say "one or more layer files are damaged: write the ISO again or use another medium"
+    exit 1
+  fi
+  say "the layer files are intact"
+fi
+
+for layer in $layers; do
+  mkdir -p "/run/garuda/layers/$layer"
+  mount -t erofs -o ro,loop "$src/$layer.erofs" "/run/garuda/layers/$layer"
+done
+
+if [ "$copied" = yes ] && [ "$persistent" = no ]; then
+  umount /run/garuda/iso
+  say "the boot medium can be removed"
+fi

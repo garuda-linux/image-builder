@@ -15,6 +15,7 @@
 # Nix and direnv
 /.direnv/
 /.pre-commit-config.yaml
+/.treefmt.toml
 # Misc output
 __pycache__
 .ruff_cache/

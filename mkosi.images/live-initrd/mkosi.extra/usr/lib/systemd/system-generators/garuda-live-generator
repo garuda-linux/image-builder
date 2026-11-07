@@ -1,0 +1,52 @@
+#!/bin/sh
+# The ISO is found by label so CD drives and USB sticks work the same.
+# The command line has no root=, so /sysroot comes from here.
+# The mounts stay in /run after switch-root for run-garuda-install.mount.
+
+dir="$1"
+
+# shellcheck source=mkosi.images/live-initrd/mkosi.extra/usr/lib/garuda-live/cmdline.sh
+. /usr/lib/garuda-live/cmdline.sh
+
+label="$(arg garuda.label)"
+if [ -z "$label" ]; then
+  echo "garuda-live: garuda.label= missing on the kernel command line" >&2
+  exit 0
+fi
+
+cat >"$dir/run-garuda-iso.mount" <<UNIT
+[Unit]
+Description=Garuda live ISO
+DefaultDependencies=no
+Before=sysroot.mount
+
+[Mount]
+What=/dev/disk/by-label/$label
+Where=/run/garuda/iso
+Type=iso9660
+Options=ro
+UNIT
+
+# lowerdir= lists the top layer first
+lower=""
+for layer in root desktop mhwd live; do
+  lower="/run/garuda/layers/$layer${lower:+:$lower}"
+done
+
+cat >"$dir/sysroot.mount" <<UNIT
+[Unit]
+Description=Garuda live root (overlayfs of the ISO layers)
+DefaultDependencies=no
+Requires=garuda-live-mount.service
+After=garuda-live-mount.service
+Before=initrd-root-fs.target
+
+[Mount]
+What=garuda-live
+Where=/sysroot
+Type=overlay
+Options=lowerdir=$lower,upperdir=/run/garuda/rw/upper,workdir=/run/garuda/rw/work
+UNIT
+
+mkdir -p "$dir/initrd-root-fs.target.requires"
+ln -sf ../sysroot.mount "$dir/initrd-root-fs.target.requires/sysroot.mount"
