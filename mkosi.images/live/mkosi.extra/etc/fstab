@@ -1,0 +1,5 @@
+#
+# /etc/fstab: static file system information
+#
+# The live root is an overlayfs of the ISO layers, mounted by the mkosi initrd
+# (garuda-live-generator and garuda-live-mount). Nothing to mount here.

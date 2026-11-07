@@ -1,0 +1,5 @@
+# No pacman-init or mirrors-live: no package ships them
+enable garuda-live.service
+enable ght-live.service
+# Installer source for Calamares unpackfs
+enable run-garuda-install.mount

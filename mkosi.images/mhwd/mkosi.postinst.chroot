@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+
+repo=/opt/ght/pkg
+mkdir -p "$repo"
+
+# A keyring of its own for the driver repository (GPGDir= in pacman-ght.conf).
+# The system keyring is made at boot only after ght-live.service has run, see
+# docs/architecture.md#Pacman keyring. This keyring only verifies the ght packages.
+ght_gpg=/opt/ght/gnupg
+pacman-key --gpgdir "$ght_gpg" --init
+pacman-key --gpgdir "$ght_gpg" --populate
+
+# shellcheck disable=SC2086 # MHWD_PACKAGES is a space-separated list
+pacman -Syw --noconfirm --gpgdir "$ght_gpg" --cachedir "$repo" ${MHWD_PACKAGES}
+
+# The .sig files stay next to the packages, repo-add puts them into the database
+packages=()
+for file in "$repo"/*.pkg.tar*; do
+  [[ "$file" == *.sig ]] || packages+=("$file")
+done
+repo-add "$repo/ght.db.tar.gz" "${packages[@]}"
+
+gpgconf --homedir "$ght_gpg" --kill all
+rm -f "$ght_gpg"/S.*
+
+# Only the driver repository belongs in this layer
+rm -f /var/lib/pacman/sync/* /var/log/pacman.log

@@ -1,0 +1,15 @@
+[Unit]
+Description=Garuda root and desktop layers for the installer
+Documentation=https://gitlab.com/garuda-linux/tools/image-builder/-/blob/main/docs/architecture.md
+ConditionPathIsMountPoint=/run/garuda/layers/root
+ConditionPathIsMountPoint=/run/garuda/layers/desktop
+
+[Mount]
+What=garuda-install
+Where=/run/garuda/install
+Type=overlay
+# Only lower layers, so it is read-only and the desktop whiteouts are resolved
+Options=lowerdir=/run/garuda/layers/desktop:/run/garuda/layers/root
+
+[Install]
+WantedBy=local-fs.target

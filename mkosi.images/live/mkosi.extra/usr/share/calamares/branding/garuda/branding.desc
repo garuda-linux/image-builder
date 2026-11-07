@@ -1,0 +1,33 @@
+# Replaces the calamares-branding-garuda placeholder. mkosi.postinst.chroot of
+# the live layer fills in @CODENAME@ from /etc/lsb-release (garuda-lsb).
+---
+componentName:  garuda
+
+welcomeStyleCalamares:   false
+welcomeExpandingLogo:   true
+windowExpanding:    noexpand
+windowSize: 910px,664px
+windowPlacement: center
+
+strings:
+    productName:         Garuda Linux
+    shortProductName:    Garuda
+    version:             @CODENAME@
+    shortVersion:        @CODENAME@
+    versionedName:       Garuda Linux @CODENAME@
+    shortVersionedName:  Garuda @CODENAME@
+    bootloaderEntryName: Garuda
+
+images:
+    productLogo:         "logo.png"
+    productIcon:         "logo.png"
+    productWelcome:      "languages.png"
+
+slideshow:               "show.qml"
+slideshowAPI: 1
+
+style:
+   SidebarBackground:    "#1e1e2e"
+   SidebarText:          "#cdd6f4"
+   SidebarTextCurrent:    "#1e1e2e"
+   SidebarBackgroundCurrent: "#7f03b8"

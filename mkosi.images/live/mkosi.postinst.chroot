@@ -1,0 +1,54 @@
+#!/bin/bash
+# LIVE_* come from Environment= in mkosi.conf and the edition profile.
+
+set -euo pipefail
+
+# Read by garuda-live-systemd
+mkdir -p /etc/garuda-tools
+cat >/etc/garuda-tools/live.conf <<CONF
+# live session configuration
+
+# autologin
+autologin=${LIVE_AUTOLOGIN}
+
+# login shell
+login_shell=${LIVE_SHELL}
+
+# live username
+username=${LIVE_USER}
+
+# live password
+password=${LIVE_PASSWORD}
+
+# live group membership
+addgroups='${LIVE_GROUPS}'
+CONF
+
+mkdir -p /etc/polkit-1/rules.d
+cat >/etc/polkit-1/rules.d/49-nopasswd-live.rules <<RULES
+/* Stop asking the user for a password while they are in a live session */
+polkit.addRule(function(action, subject) {
+    if (subject.user == "${LIVE_USER}") {
+        return polkit.Result.YES;
+    }
+});
+RULES
+
+# The Calamares branding names the codename of garuda-lsb
+# shellcheck source=/dev/null
+. /etc/lsb-release
+sed -i "s/@CODENAME@/${DISTRIB_CODENAME:?no DISTRIB_CODENAME in /etc/lsb-release}/g" \
+  /usr/share/calamares/branding/garuda/branding.desc
+
+# git stores only 0644 and 0755, sudo expects 0440
+if compgen -G '/etc/sudoers.d/*' >/dev/null; then
+  chmod 0440 /etc/sudoers.d/*
+fi
+
+hostname="$(cat /etc/hostname 2>/dev/null || true)"
+if [[ -n "$hostname" ]] && [[ -f /etc/hosts ]]; then
+  sed -i "s|localhost.localdomain|localhost.localdomain ${hostname}|" /etc/hosts
+fi
+
+# Skips the first-boot update services in the live session
+echo 'File created by image-builder. See systemd-update-done.service(8).' | tee /etc/.updated >/var/.updated
