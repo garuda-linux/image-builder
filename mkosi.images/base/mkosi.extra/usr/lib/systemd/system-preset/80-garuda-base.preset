@@ -1,0 +1,5 @@
+# Units the packages enable in their install scripts. mkosi runs
+# systemctl preset-all on every layer, and Arch's 99-default.preset disables
+# everything not listed, so they must be listed here.
+# garuda-hooks
+enable linux-modules-cleanup.service

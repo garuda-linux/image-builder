@@ -1,0 +1,25 @@
+#!/bin/bash
+# The Garuda repositories ([garuda], [multilib], [chaotic-aur]) in /etc/pacman.conf.
+# On installs, garuda-config-agent adds them with the pacman.yaml rule of
+# garuda-common-settings, but that package is only in the desktop layer, so the
+# distrobox and Lima images kept Arch's pacman.conf. The same rule, copied from
+# garuda-common-settings 2.14.0, is applied here once. configs.db records it,
+# so garuda-common-settings later finds nothing left to do. The copy is removed,
+# because /etc/garuda/garuda-config-agent/pacman.yaml belongs to that package.
+
+set -euo pipefail
+
+rule=/usr/share/image-builder/garuda-config-agent-pacman.yaml
+agent_rule=/etc/garuda/garuda-config-agent/pacman.yaml
+
+install -D -m 0644 "$rule" "$agent_rule"
+echo etc/pacman.conf | /usr/share/libalpm/scripts/garuda-config-agent post
+rm -f "$agent_rule" "$rule"
+rmdir --ignore-fail-on-non-empty /usr/share/image-builder
+
+for repo in garuda multilib chaotic-aur; do
+  grep -q "^\[$repo\]" /etc/pacman.conf || {
+    echo "garuda-config-agent did not add [$repo] to /etc/pacman.conf" >&2
+    exit 1
+  }
+done

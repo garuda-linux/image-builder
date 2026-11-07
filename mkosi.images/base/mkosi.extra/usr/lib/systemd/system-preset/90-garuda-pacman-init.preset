@@ -1,0 +1,4 @@
+# The desktop layer disables it again: its 80-garuda-desktop.preset sorts before this file,
+# and systemd.preset(5) applies the first file that names a unit. The live ISO and
+# Calamares make the keyring their own way.
+enable pacman-init.service

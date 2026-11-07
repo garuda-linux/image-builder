@@ -1,0 +1,52 @@
+targetFile: "/etc/pacman.conf"
+legacyPatchLevel: 4
+
+pipeline:
+  - order: 0
+    type: operation
+    check: "^Color"
+    pattern: "^#Color"
+    substitution: "Color"
+
+  - order: 1
+    type: operation
+    check: "^VerbosePkgLists"
+    pattern: "^#VerbosePkgLists"
+    substitution: |-
+      VerbosePkgLists
+      ILoveCandy
+
+  # Add garuda repo
+  - order: 2
+    type: operation
+    check: '^\[garuda\]'
+    pattern: '(\[options\][\s\S]*?)(^\[.*?\])'
+    substitution: |-
+      \1
+      [garuda]
+      Include = /etc/pacman.d/chaotic-mirrorlist
+
+      \2
+
+  # Enable multilib
+  - order: 3
+    type: operation
+    check: '^\[multilib\]'
+    pattern: |-
+      ^#\[multilib\]
+      #Include = /etc/pacman.d/mirrorlist
+    substitution: |-
+      [multilib]
+      Include = /etc/pacman.d/mirrorlist
+
+  # Add chaotic-aur
+  - order: 4
+    type: operation
+    check: '^\[chaotic-aur\]'
+    pattern: |-
+      (\[multilib\]\s+Include = /etc/pacman.d/mirrorlist)
+    substitution: |-
+      \1
+
+      [chaotic-aur]
+      Include = /etc/pacman.d/chaotic-mirrorlist

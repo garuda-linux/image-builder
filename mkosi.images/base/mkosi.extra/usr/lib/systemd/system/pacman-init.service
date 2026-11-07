@@ -1,0 +1,14 @@
+# Images ship no keyring, so machines made from one image do not share the
+# private master key.
+[Unit]
+Description=Initialize the pacman keyring
+Before=multi-user.target archlinux-keyring-wkd-sync.service
+ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pacman-key --init
+ExecStart=/usr/bin/pacman-key --populate
+
+[Install]
+WantedBy=multi-user.target

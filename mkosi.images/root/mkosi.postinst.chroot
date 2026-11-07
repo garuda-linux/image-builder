@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+
+# New images boot systemd-boot and carry no GRUB (garuda-systemd-boot).
+
+agent=/usr/share/libalpm/scripts/garuda-config-agent
+if [[ -x "$agent" ]]; then
+  "$agent" markoriginal
+fi
