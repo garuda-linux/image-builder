@@ -1,0 +1,2 @@
+# Arch mirror for the build (garuda-tools build_mirror)
+Server = https://builds.garudalinux.org/arch-mirror/$repo/os/$arch

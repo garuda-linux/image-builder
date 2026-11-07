@@ -1,0 +1,8 @@
+#!/bin/bash
+# Build leftovers of the root, desktop and live layers (PostInstallationScripts=)
+set -euo pipefail
+
+find /var/log -type f -delete
+rm -rf /var/lib/garuda/tmp
+rm -f /boot/grub/grub.cfg /var/lib/garuda/partial_upgrade /var/lib/pacman/sync/*
+find / -xdev \( -name '*.pacnew' -o -name '*.pacsave' -o -name '*.pacorig' \) -delete

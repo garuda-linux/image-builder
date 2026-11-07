@@ -1,0 +1,5 @@
+[Build]
+# Needs a matching mkosi.images/root/mkosi.conf.d/kernel-*.conf
+# Environment=KERNEL=linux-lts
+
+# Incremental=no
