@@ -1,0 +1,13 @@
+# lima-test sets images. UEFI only, the image boots systemd-boot.
+vmType: qemu
+arch: x86_64
+cpus: 2
+memory: 4GiB
+disk: 20GiB
+images: []
+mounts: []
+containerd:
+  system: false
+  user: false
+firmware:
+  legacyBIOS: false
