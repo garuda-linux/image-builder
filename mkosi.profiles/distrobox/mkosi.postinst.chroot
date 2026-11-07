@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+install -m 0440 /dev/stdin /etc/sudoers.d/90-toolbx-nopasswd <<'SUDO'
+%wheel ALL=(ALL) NOPASSWD: ALL
+SUDO
+
+# Lets p11-kit-client.so reach the host CA certificates
+mkdir -p /etc/pkcs11/modules
+
+# No pacman keyring, or every box would share its private master key.
+# Boxes make their own with distrobox create --pre-init-hooks.
