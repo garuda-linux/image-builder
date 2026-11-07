@@ -1,0 +1,28 @@
+#!/bin/bash
+# Edition-specific fixups live here because root is shared by all editions.
+
+set -euo pipefail
+
+# Read by garuda-inxi. IMAGE_VERSION is the build date set by build.sh.
+# shellcheck source=/dev/null
+. /etc/lsb-release
+printf 'TIMESTAMP=%s\nCODENAME=%s\nEDITION=%s\n' \
+  "${IMAGE_VERSION:-}" "${DISTRIB_CODENAME:-}" "${EDITION:?set Environment=EDITION= in the edition profile}" \
+  >/usr/lib/garuda/garuda-release
+
+# mkosi copies mkosi.extra as root, but the greeter config must belong to plasmalogin
+greeter=/var/lib/plasmalogin/.config
+if [[ -d "$greeter" ]]; then
+  chmod -R u=rwX,g=rX,o=rX "$greeter"
+  chown -R plasmalogin:plasmalogin "$greeter"
+fi
+
+# git stores only 0644 and 0755, sudo expects 0440
+if compgen -G '/etc/sudoers.d/*' >/dev/null; then
+  chmod 0440 /etc/sudoers.d/*
+fi
+
+agent=/usr/share/libalpm/scripts/garuda-config-agent
+if [[ -x "$agent" ]]; then
+  "$agent" markoriginal
+fi

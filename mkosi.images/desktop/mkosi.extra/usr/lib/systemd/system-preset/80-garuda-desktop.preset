@@ -1,0 +1,15 @@
+disable pacman-init.service
+
+# Units the packages enable in their install scripts. mkosi runs
+# systemctl preset-all on every layer, and Arch's 99-default.preset disables
+# everything not listed, so they must be listed here.
+# garuda-common-settings
+enable btrfs-balance.timer
+enable btrfs-defrag.timer
+enable btrfs-scrub.timer
+enable btrfs-trim.timer
+enable garuda-pacman-lock.service
+# snapper-support
+# (snapper-support-sdboot needs no unit: its snapper plugin starts snapper-sdboot.service)
+enable snapper-cleanup.timer
+enable snapper-timeline.timer

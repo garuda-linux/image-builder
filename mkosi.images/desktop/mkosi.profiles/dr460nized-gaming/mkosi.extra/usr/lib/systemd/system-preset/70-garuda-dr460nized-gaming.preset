@@ -1,0 +1,15 @@
+enable avahi-daemon.service
+enable bluetooth.service
+enable ModemManager.service
+enable NetworkManager.service
+enable systemd-timesyncd.service
+enable systemd-oomd.service
+enable power-profiles-daemon.service
+enable preload.service
+enable ananicy-cpp.service
+enable irqbalance.service
+enable libvirtd.service
+enable virtlogd.service
+enable fancontrol.service
+enable lm_sensors.service
+enable plasmalogin.service

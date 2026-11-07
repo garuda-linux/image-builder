@@ -1,0 +1,7 @@
+enable avahi-daemon.service
+enable bluetooth.service
+enable ModemManager.service
+enable NetworkManager.service
+enable systemd-timesyncd.service
+enable systemd-oomd.service
+enable cosmic-greeter.service

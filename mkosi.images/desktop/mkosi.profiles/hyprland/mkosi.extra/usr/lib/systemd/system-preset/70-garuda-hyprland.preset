@@ -1,0 +1,8 @@
+enable avahi-daemon.service
+enable bluetooth.service
+enable bluetooth-autoconnect.service
+enable ModemManager.service
+enable NetworkManager.service
+enable systemd-timesyncd.service
+enable systemd-oomd.service
+enable sddm.service
