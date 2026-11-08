@@ -111,6 +111,17 @@ Check on the installed system:
 - _pacman_ works, which needs the keyring that Calamares made.
 - `/usr/lib/garuda/garuda-release` names the right edition.
 
+## openQA
+
+The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_, and run with `isotovideo` alone, in CI or locally with its `run-local.sh`. They test the live ISO: the _systemd-boot_ menu, the boot into the live session and checks inside it.
+
+The live ISO has an openQA mode for them. `garuda.openqa` on the kernel command line, which the test types into the _systemd-boot_ editor, starts `garuda-openqa.service`:
+
+- root is logged in on tty2, so the test can type commands there and read their exit status from the serial port,
+- `garuda-openqa: ready (<state>)` goes to the serial port once the boot is done, where `<state>` is the state of systemd.
+
+The _systemd-boot_ menu itself needs no openQA mode: OVMF mirrors the firmware console to the serial port, where the test finds the menu entries. A normal boot never starts the service. For CI, see [Continuous integration#openQA](ci.md#openqa).
+
 ## Package changes
 
 `manifest-diff` compares the package manifests of two builds and lists the added, removed and updated packages:

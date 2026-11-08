@@ -1,0 +1,14 @@
+[Unit]
+Description=openQA test mode of the live ISO
+Documentation=https://gitlab.com/garuda-linux/tools/image-builder/-/blob/main/docs/testing.md
+# Only when the test added garuda.openqa in the systemd-boot editor
+ConditionKernelCommandLine=garuda.openqa
+After=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/garuda/openqa-mode
+
+[Install]
+WantedBy=multi-user.target

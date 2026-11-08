@@ -96,6 +96,14 @@ Nothing is merged automatically. The configuration is `renovate.json`.
 
 The ISO jobs are not listed in `.gitlab-ci.yml`. `ci/iso_pipeline.py` takes the editions from `scripts/editions.sh`, decides which of them need a build, and writes a job for each. Adding an edition directory is therefore enough to get its CI job. When no edition needs a build, the child pipeline holds a single `no-iso` job that does nothing.
 
+### openQA
+
+When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. It runs the tests with `isotovideo` in the `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm` image on the `nix-privileged` runner, which has KVM. See [Testing#openQA](testing.md#openqa).
+
+- The next job starts with a clean workspace, so the ISO job copies its ISO to `/cache/openqa/<pipeline>/` on the runner's cache volume. The test job deletes it at the end.
+- The jobs report only (`allow_failure`): a failed test does not stop publishing until the tests are stable.
+- The results stay for two weeks as artifacts: `testresults/` with the screenshots and the result of each test, `video.ogv`, `autoinst-log.txt` and `serial0`.
+
 ### Triggers
 
 A build runs:

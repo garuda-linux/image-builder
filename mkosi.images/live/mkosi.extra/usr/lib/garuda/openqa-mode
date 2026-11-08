@@ -1,0 +1,27 @@
+#!/bin/bash
+# openQA test mode of the live ISO, started by garuda-openqa.service when the
+# kernel command line has garuda.openqa (the test types it in the systemd-boot
+# editor). It never runs on a normal boot.
+#
+# - root is logged in on tty2, so a test can switch to it and type commands.
+#   os-autoinst reads their results from the serial port.
+# - "garuda-openqa: ready" goes to the serial port once the system is up.
+
+set -euo pipefail
+
+serial=/dev/ttyS0
+
+mkdir -p /run/systemd/system/getty@tty2.service.d
+cat >/run/systemd/system/getty@tty2.service.d/openqa-autologin.conf <<'UNIT'
+[Service]
+ExecStart=
+ExecStart=-/usr/bin/agetty --noreset --noclear --autologin root - ${TERM}
+UNIT
+systemctl daemon-reload
+systemctl restart getty@tty2.service
+
+# Wait for the boot to finish without holding up the boot itself
+(
+  state="$(systemctl is-system-running --wait 2>/dev/null || true)"
+  echo "garuda-openqa: ready ($state)" >"$serial"
+) &
