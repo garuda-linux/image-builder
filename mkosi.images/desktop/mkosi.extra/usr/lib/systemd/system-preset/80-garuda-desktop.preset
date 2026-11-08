@@ -1,5 +1,18 @@
 disable pacman-init.service
 
+# Arch's 90-systemd.preset enables these. On desktops NetworkManager manages
+# the network and /etc/resolv.conf, and Garuda creates normal users, so they
+# would only run next to it. This file sorts before 90-systemd.preset, so it
+# wins. The root layer keeps them: the Lima image gets its network from
+# cloud-init over systemd-networkd.
+disable systemd-networkd.service
+disable systemd-networkd.socket
+disable systemd-networkd-wait-online.service
+disable systemd-resolved.service
+disable systemd-homed.service
+disable systemd-homed-activate.service
+disable systemd-userdbd.socket
+
 # Units the packages enable in their install scripts. mkosi runs
 # systemctl preset-all on every layer, and Arch's 99-default.preset disables
 # everything not listed, so they must be listed here.
