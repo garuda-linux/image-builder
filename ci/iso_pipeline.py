@@ -91,7 +91,8 @@ OPENQA_JOB = """
 openqa:{edition}:
   stage: test
   image:
-    name: registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm
+    # isotovideo with Inline::Python, from ci/openqa.Containerfile
+    name: $OPENQA_IMAGE
     entrypoint: [""]
   tags: [nix-privileged] # KVM, the /cache volume with the ISO
   needs: ["iso:{edition}"]
@@ -111,9 +112,10 @@ openqa:{edition}:
     - git clone --depth 1 "$OPENQA_DISTRI_URL" distri
     - >-
       isotovideo CASEDIR="$PWD/distri" PRODUCTDIR="$PWD/distri" NEEDLES_DIR="$PWD/distri/needles"
-      DISTRI=garuda EDITION="$EDITION" ARCH=x86_64 BACKEND=qemu ISO="$iso" USBBOOT=1
-      UEFI=1 UEFI_PFLASH_CODE=/usr/share/qemu/ovmf-x86_64-code.bin UEFI_PFLASH_VARS=/usr/share/qemu/ovmf-x86_64-vars.bin
-      QEMURAM=6144 QEMUCPUS=4
+      DISTRI=garuda EDITION="$EDITION" ARCH=x86_64 BACKEND=qemu ISO="$iso" USBBOOT=1 BOOTFROM=c
+      UEFI=1 UEFI_PFLASH_CODE=/usr/share/garuda-openqa/ovmf-code.bin
+      UEFI_PFLASH_VARS=/usr/share/garuda-openqa/ovmf-vars.bin
+      QEMURAM=6144 QEMUCPUS=4 HDDSIZEGB=40 GARUDA_SCENARIO=install
   after_script:
     - rm -f "/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
     - rmdir "/cache/openqa/$CI_PIPELINE_ID" 2>/dev/null || true

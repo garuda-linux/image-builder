@@ -36,6 +36,7 @@ The pipeline runs in three stages:
 | Stage   | Job            | Purpose                                                                                                                         |
 | ------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                 |
+| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                            |
 | lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition                     |
 | lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                 |
 | lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _commitizen_) in check mode |
@@ -98,7 +99,7 @@ The ISO jobs are not listed in `.gitlab-ci.yml`. `ci/iso_pipeline.py` takes the 
 
 ### openQA
 
-When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. It runs the tests with `isotovideo` in the `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm` image on the `nix-privileged` runner, which has KVM. See [Testing#openQA](testing.md#openqa).
+When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. It runs the tests with `isotovideo` on the `nix-privileged` runner, which has KVM, in the `openqa:latest` image of the project registry. The `openqa-image` job builds it from `ci/openqa.Containerfile`: the upstream image `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm` plus `Inline::Python`, without which isotovideo cannot load the Python tests. With the build argument `BASE` set to `openqa-single-instance`, the same file builds the local web UI image of the test repository. It runs like `builder`, and only when `OPENQA_DISTRI_URL` is set. Start it once by hand before the first openQA run. See [Testing#openQA](testing.md#openqa).
 
 - The next job starts with a clean workspace, so the ISO job copies its ISO to `/cache/openqa/<pipeline>/` on the runner's cache volume. The test job deletes it at the end.
 - The jobs report only (`allow_failure`): a failed test does not stop publishing until the tests are stable.

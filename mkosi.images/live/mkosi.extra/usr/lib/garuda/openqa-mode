@@ -3,8 +3,10 @@
 # kernel command line has garuda.openqa (the test types it in the systemd-boot
 # editor). It never runs on a normal boot.
 #
-# - root is logged in on tty2, so a test can switch to it and type commands.
-#   os-autoinst reads their results from the serial port.
+# - a root shell runs on the virtio console hvc0 of os-autoinst (its
+#   root-virtio-terminal). Commands go over that port, not the keyboard, so
+#   they arrive at once and do not depend on the keyboard layout.
+# - root is also logged in on tty2, for tests that need the screen.
 # - "garuda-openqa: ready" goes to the serial port once the system is up.
 
 set -euo pipefail
@@ -17,8 +19,42 @@ cat >/run/systemd/system/getty@tty2.service.d/openqa-autologin.conf <<'UNIT'
 ExecStart=
 ExecStart=-/usr/bin/agetty --noreset --noclear --autologin root - ${TERM}
 UNIT
+
+# A root shell on hvc0 without getty, login or bashrc: the prompt "# " that
+# os-autoinst waits for, TERM dumb without colour codes, and 2048 columns, so
+# readline never scrolls a long command and its echo stays unchanged.
+# systemd-getty-generator starts a login getty on hvc0, which would take the
+# commands as user names, so it is masked for this boot.
+cat >/run/systemd/system/garuda-openqa-shell.service <<'UNIT'
+[Unit]
+Description=Root shell for os-autoinst on the virtio console hvc0
+ConditionPathExists=/dev/hvc0
+Conflicts=serial-getty@hvc0.service
+After=serial-getty@hvc0.service
+
+[Service]
+Environment=TERM=dumb HOME=/root "PS1=# "
+WorkingDirectory=/root
+ExecStart=/usr/bin/bash --noprofile --norc -i
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/hvc0
+TTYReset=yes
+TTYVHangup=yes
+TTYColumns=2048
+TTYRows=50
+Restart=always
+UNIT
+
 systemctl daemon-reload
 systemctl restart getty@tty2.service
+# Only when os-autoinst attached its virtio console (VIRTIO_CONSOLE, on by default)
+if [[ -e /dev/hvc0 ]]; then
+  systemctl mask --runtime serial-getty@hvc0.service
+  systemctl stop serial-getty@hvc0.service
+  systemctl restart garuda-openqa-shell.service
+fi
 
 # Wait for the boot to finish without holding up the boot itself
 (

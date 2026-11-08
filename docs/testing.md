@@ -10,6 +10,7 @@ The tests per output:
 | distrobox | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                           |
 | Lima      | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                        |
 | ISO       | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                           |
+| VM image  | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                          |
 
 ## Configuration check
 
@@ -78,7 +79,7 @@ $ limactl start --name=garuda \
 $ iso-test dr460nized
 ```
 
-The ISO boots in two ways, both with UEFI: as a USB stick, the default, and as a CD drive with `--cdrom`. The firmware finds the same ESP image as GPT partition 2 or as the El Torito EFI image:
+The ISO boots in two ways, both with UEFI: as a USB stick, the default, and as a CD drive with `--cdrom`. The firmware finds the same ESP as GPT partition 1 or through the El Torito boot catalog. On a CD drive, the initrd reads the partitions through a loop device:
 
 ```console
 $ iso-test --cdrom
@@ -111,16 +112,34 @@ Check on the installed system:
 - _pacman_ works, which needs the keyring that Calamares made.
 - `/usr/lib/garuda/garuda-release` names the right edition.
 
+## VM image
+
+`vm-test` boots the VM image of an edition, `mkosi.output/garuda-vm-<edition>.qcow2`, in a QEMU window with UEFI and virtio graphics, as virt-manager does. Without an argument, it boots mokka:
+
+```console
+$ vm-test dr460nized
+```
+
+The VM writes to an overlay, `~/.cache/image-builder/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay of the last run again, for example to check a system after its first login. The serial console goes to `~/.cache/image-builder/vm-serial.log`.
+
+Check on the first boot:
+
+- systemd-boot starts the UKI, the display manager shows the login screen.
+- The login as `garuda` with the password `garuda` starts the desktop, and a notification asks to change the password. It shows once: the next login has none.
+- `df -h /` shows about 40 GB: _systemd-repart_ grew the root partition to the disk.
+- _pacman_ works, with the keyring that `pacman-init.service` made.
+- `/usr/lib/garuda/garuda-release` names the edition, `hostnamectl` shows `garuda-<edition>`.
+
 ## openQA
 
-The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_, and run with `isotovideo` alone, in CI or locally with its `run-local.sh`. They test the live ISO: the _systemd-boot_ menu, the boot into the live session and checks inside it.
+The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_, and run with `isotovideo` alone, in CI or locally with its `run-local.sh`. In one job, they test the live ISO (the _systemd-boot_ menu, the boot into the live session and checks inside it), an unattended installation with Calamares on an empty 40 GB disk, and the installed system after a reboot from the disk. For the installation, the test turns the Calamares configuration of the ISO into an unattended one, see the README of the test repository.
 
 The live ISO has an openQA mode for them. `garuda.openqa` on the kernel command line, which the test types into the _systemd-boot_ editor, starts `garuda-openqa.service`:
 
-- root is logged in on tty2, so the test can type commands there and read their exit status from the serial port,
+- a root shell runs on the virtio console `hvc0`, the `root-virtio-terminal` of os-autoinst, with the plain prompt `# ` and 2048 columns, so the test sends commands over that port and reads their output and exit status there, at once and independent of the keyboard layout. root is also logged in on tty2, for tests that need the screen,
 - `garuda-openqa: ready (<state>)` goes to the serial port once the boot is done, where `<state>` is the state of systemd.
 
-The _systemd-boot_ menu itself needs no openQA mode: OVMF mirrors the firmware console to the serial port, where the test finds the menu entries. A normal boot never starts the service. For CI, see [Continuous integration#openQA](ci.md#openqa).
+The _systemd-boot_ menu itself needs no openQA mode: OVMF mirrors the firmware console to the serial port, where the test finds the menu entries. A normal boot never starts the service. For CI, see [Continuous integration#openQA](ci.md#openqa). To create needles, `webui-local.sh` of the test repository runs the tests in a local openQA web UI with its needle editor.
 
 ## Package changes
 
