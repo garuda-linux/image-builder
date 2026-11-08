@@ -52,6 +52,12 @@ The installer works offline:
 
 The initramfs images in `/boot` are built in the `root` layer and rebuilt by _postcfg_ for the installed system. No separate _dracut_ module runs.
 
+### Encryption
+
+The UKIs sit on the ESP, which is not encrypted, and contain the initramfs. The _luksbootkeyfile_ and _dracutlukscfg_ modules are therefore not in the sequence: they create `/crypto_keyfile.bin` and put it into the initramfs, so anyone with the disk could read it from the ESP and unlock the root partition. GRUB needed the keyfile to avoid a second passphrase prompt after it had unlocked the encrypted `/boot`. With _systemd-boot_, the initramfs asks for the passphrase, from `rd.luks.uuid=` on the kernel command line, and _fstab_ writes `none` as the key of `/etc/crypttab`.
+
+The installed `loader.conf` has `editor no`, so the kernel command line cannot be changed at the boot menu, for example to `init=/bin/bash`. Without Secure Boot this does not stop someone who can write to the ESP. To change the options, edit `/etc/kernel/cmdline` and rebuild the UKIs with `kernel-install add` for each kernel, or boot the live ISO when the system does not start.
+
 ## Known issues
 
 The installer supports offline installation only. The garuda-tools options for _netinstall_, OEM mode and ZFS are not ported.
