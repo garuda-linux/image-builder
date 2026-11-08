@@ -88,7 +88,7 @@ The results are in the `mkosi.output/` directory:
 | `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                           |
 | `base/`, `root/`, `desktop/`, `live/`, `mhwd/`         | the layer trees                                                            |
 
-`<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default.
+`<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default. An ISO build removes the older ISOs of the same edition and kernel with their `.manifest`, `.sha256` and `.spdx.json` files, so one ISO per edition stays. The raw disk image of Lima and the VM image is removed once its qcow2 exists.
 
 After mkosi has built the layers, `build.sh` checks that every unit enabled in one of the preset files of this repository exists in the image. _systemctl preset-all_ skips unknown units without a message, so a typo or a renamed unit would otherwise leave a service off. The build stops and names the unit and the preset file.
 

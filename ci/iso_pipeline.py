@@ -72,6 +72,9 @@ iso:{edition}:
     # /cache volume of the runner outlives it
     - |
       if [ -n "${{OPENQA_DISTRI_URL:-}}" ]; then
+        # ISOs of pipelines whose openQA job never ran or was cancelled, two days or older
+        find /cache/openqa -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {{}} + 2>/dev/null || true
+
         mkdir -p "/cache/openqa/$CI_PIPELINE_ID"
         cp --reflink=auto "$(readlink -f "mkosi.output/garuda-$EDITION.iso")" \\
           "/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
@@ -96,6 +99,8 @@ openqa:{edition}:
     entrypoint: [""]
   tags: [nix-privileged] # KVM, the /cache volume with the ISO
   needs: ["iso:{edition}"]
+  # One test VM (6 GB RAM, 4 CPUs) at a time, next to at most one ISO build
+  resource_group: openqa-host
   interruptible: true
   timeout: 2h
   allow_failure: true
@@ -109,7 +114,12 @@ openqa:{edition}:
   script:
     - iso="/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
     - test -f "$iso" || {{ echo "no ISO at $iso, the iso:$EDITION job copies it there"; exit 1; }}
-    - git clone --depth 1 "$OPENQA_DISTRI_URL" distri
+    # The tests run as root on the build host, so only a pinned tag or commit
+    # of the test repository, never its newest branch
+    - test -n "${{OPENQA_DISTRI_REF:-}}" || {{ echo "set OPENQA_DISTRI_REF to a tag or commit of the tests"; exit 1; }}
+    - git init -q distri
+    - git -C distri fetch -q --depth 1 "$OPENQA_DISTRI_URL" "$OPENQA_DISTRI_REF"
+    - git -C distri checkout -q FETCH_HEAD
     - >-
       isotovideo CASEDIR="$PWD/distri" PRODUCTDIR="$PWD/distri" NEEDLES_DIR="$PWD/distri/needles"
       DISTRI=garuda EDITION="$EDITION" ARCH=x86_64 BACKEND=qemu ISO="$iso" USBBOOT=1 BOOTFROM=c

@@ -33,6 +33,9 @@ run_mkosi() {
   mkosi --image-version="$VERSION" "${env_args[@]}" "$@" "${FORCE[@]}" build
 }
 
+# Contents, and the path, mode, type and link target of every entry: a chmod
+# or a changed symlink in mkosi.extra must change the stamp as well. No mtime,
+# a checkout has arbitrary ones.
 hash_files() {
   local path existing=()
 
@@ -44,7 +47,11 @@ hash_files() {
     echo none
     return
   fi
-  find "${existing[@]}" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+
+  {
+    find "${existing[@]}" -printf '%p %m %y %l\n' | LC_ALL=C sort
+    find "${existing[@]}" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+  } | sha256sum | cut -d' ' -f1
 }
 
 layer_files_hash() {
@@ -123,6 +130,8 @@ load_stamps() {
       NEW_STAMP[${file##*/}]="$(cat "$file")"
     fi
   done
+
+  [[ -f "$STAMPS/.rebuilt" ]] || die "$STAMPS/.rebuilt not found: --post needs a finished build.sh run"
 
   # .rebuilt is a single empty line when nothing was rebuilt
   while read -r layer; do

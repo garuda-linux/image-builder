@@ -35,24 +35,28 @@ iso_label() {
   echo "${label:0:32}"
 }
 
-# Children of a whiteout need no whiteout of their own
+# Children of a whiteout need no whiteout of their own. Neither do the children
+# of a directory that the upper layer replaced with a file or symlink: overlayfs
+# hides the lower directory behind it.
 under_whiteout() {
   local out="$1" path="$2"
   while [[ "$path" == */* ]]; do
     path="${path%/*}"
     [[ -c "$out/$path" ]] && return 0
+    [[ -L "$out/$path" || (-e "$out/$path" && ! -d "$out/$path") ]] && return 0
   done
 
   return 1
 }
 
 # Deleted files become overlayfs whiteouts (char device 0/0). The layers only
-# work stacked in overlayfs.
+# work stacked in overlayfs. --checksum: mkosi clamps every mtime to
+# SOURCE_DATE_EPOCH, so size and time cannot tell changed files apart.
 make_layer_diff() {
   local lower="$1" upper="$2" out="$3"
 
   mkdir -p "$out" "$ISO_WORK/lists"
-  rsync -aHAX --checksum --compare-dest="$lower/" "$upper/" "$out/"
+  rsync -aHAX --checksum --checksum-choice=xxh3 --compare-dest="$lower/" "$upper/" "$out/"
 
   (cd "$lower" && find . -mindepth 1 | LC_ALL=C sort) >"$ISO_WORK/lists/lower"
   (cd "$upper" && find . -mindepth 1 | LC_ALL=C sort) >"$ISO_WORK/lists/upper"
@@ -128,13 +132,16 @@ copy_boot_files() {
 }
 
 # garuda.label= lets the initrd find the boot medium. garuda.verity= holds the
-# dm-verity root hash of each layer, checksum=y makes the initrd read every
-# layer once before the boot. No quiet or splash, so boot messages stay
-# visible. Each driver choice in three modes: normal, copied to RAM, with
-# persistence. The options of an entry can be changed with e in the menu.
+# dm-verity root hash of each layer, so every block read is checked. No quiet
+# or splash, so boot messages stay visible. Each driver choice in three modes:
+# normal, copied to RAM, with persistence. checksum=y reads the whole medium
+# before the boot and stops with a clear message on a damaged block. The
+# copytoram entries read the medium anyway, so they have it, and a last entry
+# adds it to a normal boot, like the media check of other distributions. The
+# options of an entry can be changed with e in the menu.
 write_boot_menu() {
   local esp="$1" label="$2" verity="$3" edition="$4"
-  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1 checksum=y"
+  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1"
 
   log "Writing the systemd-boot menu"
   cat >"$esp/loader/loader.conf" <<CONF
@@ -149,7 +156,7 @@ CONF
   for mode in normal copytoram persistence; do
     case "$mode" in
       normal) mode_args="" mode_title="" ;;
-      copytoram) mode_args=" copytoram" mode_title=", copied to RAM" ;;
+      copytoram) mode_args=" copytoram checksum=y" mode_title=", copied to RAM" ;;
       persistence) mode_args=" persistence" mode_title=", with persistence" ;;
     esac
     for driver in free nonfree; do
@@ -172,6 +179,17 @@ options  $common $driver_args$mode_args
 ENTRY
     done
   done
+
+  n=$((n + 1))
+  cat >"$esp/loader/entries/garuda-$n-verify.conf" <<ENTRY
+title    Garuda Linux $edition: verify the medium, then boot (open source drivers)
+sort-key garuda-$n
+linux    /garuda/vmlinuz-x86_64
+initrd   /garuda/amd-ucode.img
+initrd   /garuda/intel-ucode.img
+initrd   /garuda/initramfs-x86_64.img
+options  $common driver=free nouveau.modeset=1 i915.modeset=1 radeon.modeset=1 checksum=y
+ENTRY
 
   if [[ -f "$esp/garuda/memtest86x64.efi" ]]; then
     printf 'title    Memory test (memtest86+)\nsort-key zz-memtest\nefi      /garuda/memtest86x64.efi\n' \
@@ -329,9 +347,22 @@ write_iso() {
   ((size > need)) || die "$iso is smaller than its layers"
 }
 
-finish_iso() {
-  local iso="$1" edition="$2"
+# Only the newest ISO of an edition and kernel stays: one is 5 to 6 GB. The
+# kernel in the pattern keeps dr460nized from matching dr460nized-gaming.
+prune_isos() {
+  local iso="$1" edition="$2" kernel="$3" old
 
+  for old in "$OUTPUT_DIR/garuda-$edition-$kernel-"[0-9]*.iso; do
+    [[ -e "$old" && "$old" != "$iso" ]] || continue
+    log "Removing the older ${old##*/}"
+    rm -f "$old" "$old.manifest" "$old.sha256" "$old.spdx.json"
+  done
+}
+
+finish_iso() {
+  local iso="$1" edition="$2" kernel="$3"
+
+  prune_isos "$iso" "$edition" "$kernel"
   (cd "$OUTPUT_DIR" && sha256sum "${iso##*/}" >"${iso##*/}.sha256")
 
   install -m 0644 "$OUTPUT_DIR/live.manifest" "$iso.manifest"
@@ -369,7 +400,7 @@ post_iso() {
   make_layer_images "$layer_dir"
   build_live_boot "$live" "$label" "$(verity_arg "$layer_dir")" "$edition"
   write_iso "$iso" "$layer_dir" "$label"
-  finish_iso "$iso" "$edition"
+  finish_iso "$iso" "$edition" "$kernel"
 
   trap - EXIT
   cleanup_iso

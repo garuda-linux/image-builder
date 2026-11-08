@@ -88,13 +88,13 @@ The initrd finds the boot disk by the label given in `garuda.label=` on the kern
 
 ### Boot stops with "the layer is damaged"
 
-The `checksum=y` check found a block of a layer that does not match its dm-verity hash tree. The medium is damaged or was written incompletely. Write the ISO again, preferably after checking the `.sha256` file of the ISO, or use another USB stick.
+The `checksum=y` check of the copytoram entries and the "verify the medium" entry found a block of a layer that does not match its dm-verity hash tree. The medium is damaged or was written incompletely. Write the ISO again, preferably after checking the `.sha256` file of the ISO, or use another USB stick.
 
 ### Boot stops with "does not match garuda.verity="
 
 A layer on the medium is not the one the boot entry was written for: the layer was replaced, or its hash tree is damaged. Write the ISO again from a download whose `.sha256` file matches. A boot entry edited by hand needs the `garuda.verity=` value of the same build. "has no root hash for" means the value lacks a layer.
 
-Without `checksum`, a damaged block shows up later as an I/O error in the live session, because dm-verity refuses to return it.
+With the normal and persistence entries, which have no `checksum`, a damaged block shows up later as an I/O error in the live session, because dm-verity refuses to return it.
 
 ### Changes are lost although persistence was set
 

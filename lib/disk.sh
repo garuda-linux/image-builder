@@ -102,7 +102,8 @@ disk_unmount() {
 }
 
 # disk_qcow2 <raw> <name> [virtual size]: <name>-VERSION.qcow2 plus <name>.qcow2
-# as link to it, both in OUTPUT_DIR
+# as link to it, both in OUTPUT_DIR. The raw image (3 GB and more) and the
+# link mkosi made to it go, the qcow2 holds the same content.
 disk_qcow2() {
   local raw="$1" name="$2" size="${3:-}" qcow2="$OUTPUT_DIR/$2-$VERSION.qcow2"
 
@@ -112,6 +113,9 @@ disk_qcow2() {
     qemu-img resize "$qcow2" "$size" >/dev/null
   fi
   ln -sf "${qcow2##*/}" "$OUTPUT_DIR/$name.qcow2"
+
+  rm -f "$raw"
+  [[ -L "${raw%.raw}" ]] && rm -f "${raw%.raw}"
 
   log "Done: $qcow2"
 }
