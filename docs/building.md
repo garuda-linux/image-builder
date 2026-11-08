@@ -39,12 +39,13 @@ The build repositories are in `mkosi.sandbox/etc/pacman.conf`, in the Garuda ord
 
 ## Usage
 
-Give `build.sh` the output and, for an ISO, the edition:
+Give `build.sh` the output and, for an ISO or a VM image, the edition:
 
 ```console
 # ./build.sh distrobox
 # ./build.sh lima
 # ./build.sh iso mokka
+# ./build.sh vm mokka
 ```
 
 In the development shell, `build` runs the same in the builder container:
@@ -76,19 +77,31 @@ Options go before the output name:
 
 The results are in the `mkosi.output/` directory:
 
-| File                                                   | Content                                                                      |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `garuda-distrobox/`                                    | OCI image directory with _zstd_ layers                                       |
-| `garuda-lima-<version>.qcow2`                          | disk image, systemd-boot with UKIs (UEFI only), Garuda btrfs layout          |
-| `garuda-<edition>-<kernel>-<version>.iso`              | live ISO for BIOS and UEFI, CD and USB, with `.sha256` and `.manifest` files |
-| `garuda-<edition>.iso`, `garuda-lima.qcow2`            | links to the newest build                                                    |
-| `<output>.manifest`, `garuda-<edition>.iso.manifest`   | JSON package list written by mkosi, under a name without version             |
-| `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                             |
-| `base/`, `root/`, `desktop/`, `live/`, `mhwd/`         | the layer trees                                                              |
+| File                                                   | Content                                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `garuda-distrobox/`                                    | OCI image directory with _zstd_ layers                                     |
+| `garuda-lima-<version>.qcow2`                          | disk image, systemd-boot with UKIs (UEFI only), Garuda btrfs layout        |
+| `garuda-<edition>-<kernel>-<version>.iso`              | live ISO for UEFI, USB stick and CD, with `.sha256` and `.manifest` files  |
+| `garuda-vm-<edition>-<version>.qcow2`                  | installed system of an edition for virt-manager, see [VM image](#vm-image) |
+| `garuda-<edition>.iso`, `garuda-lima.qcow2`            | links to the newest build                                                  |
+| `<output>.manifest`, `garuda-<edition>.iso.manifest`   | JSON package list written by mkosi, under a name without version           |
+| `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                           |
+| `base/`, `root/`, `desktop/`, `live/`, `mhwd/`         | the layer trees                                                            |
 
 `<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default.
 
 After mkosi has built the layers, `build.sh` checks that every unit enabled in one of the preset files of this repository exists in the image. _systemctl preset-all_ skips unknown units without a message, so a typo or a renamed unit would otherwise leave a service off. The build stops and names the unit and the preset file.
+
+## VM image
+
+`./build.sh vm <edition>` builds the installed system of an edition as a qcow2 disk for virt-manager and other QEMU front ends, and as a base for tests inside it. It is the `desktop` layer of the edition, shared with its ISO build, without the `live` and `mhwd` layers, on the disk layout of the Lima image (`mkosi.profiles/vm`). `lib/vm.sh` does on the image what Calamares does on an install:
+
+- the Garuda btrfs subvolumes, `/.snapshots` for snapper, fstab, the ESP of 4 GiB at `/efi`, _systemd-boot_ with UKIs and the kernel options of the edition's `bootloader.conf`, for example the TTY colours of mokka,
+- the user `garuda` with the default groups of the edition's `users.conf` and sudo through `wheel`. The password is `garuda`. A notification after the first login asks to change it, once. The password is not expired, because plasmalogin hangs on the password change of an expired one,
+- locale `en_US.UTF-8`, keymap `us`, time zone UTC, hostname `garuda-<edition>`,
+- `pacman-init.service` makes the pacman keyring on the first boot, which postcfg of Calamares does on installs.
+
+The disk has a virtual size of 40 GB and stays small as a file. On every boot, _systemd-repart_ grows the root partition and its btrfs to the end of the disk (`/usr/lib/repart.d/50-root.conf`), so a disk made larger with `qemu-img resize` is used on the next boot. Create the VM in virt-manager with _Import existing disk image_ and UEFI firmware, or try it with `vm-test`, see [Testing#VM image](testing.md#vm-image). The image has no graphics drivers of the hardware detection: the open drivers of QEMU's virtual graphics are enough.
 
 ## Incremental builds
 

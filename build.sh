@@ -5,6 +5,7 @@
 #   ./build.sh distrobox [mkosi args]
 #   ./build.sh lima [mkosi args]
 #   ./build.sh iso <edition> [mkosi args]
+#   ./build.sh vm <edition> [mkosi args]
 #
 # Extra args go to mkosi as is, for example -E KERNEL=linux-lts.
 # Options, before the output name:
@@ -58,8 +59,12 @@ usage() {
 source lib/chaotic.sh
 # shellcheck source=lib/layers.sh
 source lib/layers.sh
+# shellcheck source=lib/disk.sh
+source lib/disk.sh
 # shellcheck source=lib/lima.sh
 source lib/lima.sh
+# shellcheck source=lib/vm.sh
+source lib/vm.sh
 # shellcheck source=lib/iso.sh
 source lib/iso.sh
 # shellcheck source=lib/container.sh
@@ -92,6 +97,10 @@ post_main() {
       # live contains every layer below it, so this covers all presets
       check_presets "$OUTPUT_DIR/live"
       post_iso "$2"
+      ;;
+    vm)
+      post_vm "$2"
+      write_sbom "$OUTPUT_DIR/garuda-vm.manifest" "garuda-vm-$2"
       ;;
   esac
 }
@@ -151,21 +160,27 @@ main() {
       write_stamps
       run_post lima lima
       ;;
-    iso)
-      [[ $# -ge 1 ]] || die "iso needs an edition, for example: ./build.sh iso mokka"
+    iso | vm)
+      [[ $# -ge 1 ]] || die "$output needs an edition, for example: ./build.sh $output mokka"
       local edition="$1"
       shift
-      # mkosi splits --profile on commas, so "mokka," would build a broken ISO
+      # mkosi splits --profile on commas, so "mokka," would build a broken image
       [[ -d "mkosi.images/desktop/mkosi.profiles/$edition" ]] ||
         die "unknown edition $edition, see scripts/editions.sh"
 
       local kernel_args=()
       mapfile -t kernel_args < <(edition_args "$edition" "$@")
 
-      prepare_layers "$edition" base root desktop live mhwd live-initrd -- "${kernel_args[@]}" "$@"
-      run_mkosi --profile iso --profile "$edition" "${kernel_args[@]}" "$@"
+      if [[ "$output" == iso ]]; then
+        prepare_layers "$edition" base root desktop live mhwd live-initrd -- "${kernel_args[@]}" "$@"
+      else
+        # The layers up to desktop, shared with the ISO build of the edition
+        prepare_layers "$edition" base root desktop -- "${kernel_args[@]}" "$@"
+        remove_output "$OUTPUT_DIR/garuda-vm" "$OUTPUT_DIR/garuda-vm.raw"
+      fi
+      run_mkosi --profile "$output" --profile "$edition" "${kernel_args[@]}" "$@"
       write_stamps
-      run_post iso iso "$edition"
+      run_post "$output" "$output" "$edition"
       ;;
     *)
       usage 1

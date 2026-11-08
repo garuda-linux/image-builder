@@ -80,6 +80,7 @@
             "distrobox-test"
             "lima-test"
             "iso-test"
+            "vm-test"
             "lint"
             "manifest-diff"
             "sbom"
@@ -112,6 +113,7 @@
               (tool "distrobox-test")
               (tool "lima-test")
               (tool "iso-test")
+              (tool "vm-test")
               (tool "lint")
               (pytool "manifest-diff" "scripts/manifest_diff.py")
               (pytool "sbom" "scripts/sbom.py")
