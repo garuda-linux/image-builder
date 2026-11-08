@@ -73,13 +73,29 @@ case "${ISO_COMPRESSION:=fast}" in
   *) die "ISO_COMPRESSION must be fast or max, not $ISO_COMPRESSION" ;;
 esac
 
-# Fixed times and a UUID derived from layer and SOURCE_DATE_EPOCH make the
-# image depend only on its content.
-make_erofs() {
+# A UUID derived from a name and SOURCE_DATE_EPOCH, for reproducible images
+derived_uuid() {
   local h
-  h="$(printf 'garuda-%s-%s' "$3" "$SOURCE_DATE_EPOCH" | sha256sum)"
+  h="$(printf 'garuda-%s-%s' "$1" "$SOURCE_DATE_EPOCH" | sha256sum)"
+  echo "${h:0:8}-${h:8:4}-${h:12:4}-${h:16:4}-${h:20:12}"
+}
+
+# Fixed times and a derived UUID make the image depend only on its content.
+make_erofs() {
   mkfs.erofs --quiet "${EROFS_OPTS[@]}" -T"$SOURCE_DATE_EPOCH" \
-    -U"${h:0:8}-${h:8:4}-${h:12:4}-${h:16:4}-${h:20:12}" "$2" "$1"
+    -U"$(derived_uuid "$3")" "$2" "$1"
+}
+
+# dm-verity hash tree of a layer image. The initrd opens the layer with the
+# root hash from the boot entry, so every block read is checked. Salt and UUID
+# are derived, so the hash image depends only on the layer image.
+make_verity() {
+  local data="$1" hash="$2" roothash="$3" name="$4" salt
+  salt="$(printf 'garuda-verity-%s-%s' "$name" "$SOURCE_DATE_EPOCH" | sha256sum | cut -d' ' -f1)"
+  rm -f "$hash" "$roothash"
+  veritysetup format --data-block-size=4096 --hash-block-size=4096 \
+    --salt="$salt" --uuid="$(derived_uuid "verity-$name")" \
+    --root-hash-file="$roothash" "$data" "$hash" >/dev/null
 }
 
 # systemd-boot reads kernels and initrds only from FAT, so everything it boots
@@ -111,14 +127,14 @@ copy_boot_files() {
   fi
 }
 
-# garuda.label= lets the initrd find the ISO. garuda.sums= pins SHA256SUMS of
-# the layer files, checksum=y makes the initrd verify the layer files against
-# it. No quiet or splash, so boot messages stay visible. Each driver choice in
-# three modes: normal, copied to RAM, with persistence. The options of an entry
-# can be changed with e in the menu.
+# garuda.label= lets the initrd find the boot medium. garuda.verity= holds the
+# dm-verity root hash of each layer, checksum=y makes the initrd read every
+# layer once before the boot. No quiet or splash, so boot messages stay
+# visible. Each driver choice in three modes: normal, copied to RAM, with
+# persistence. The options of an entry can be changed with e in the menu.
 write_boot_menu() {
-  local esp="$1" label="$2" sums="$3" edition="$4"
-  local common="garuda.label=$label garuda.sums=$sums rd.systemd.gpt_auto=0 systemd.show_status=1 checksum=y"
+  local esp="$1" label="$2" verity="$3" edition="$4"
+  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1 checksum=y"
 
   log "Writing the systemd-boot menu"
   cat >"$esp/loader/loader.conf" <<CONF
@@ -163,7 +179,7 @@ ENTRY
   fi
 }
 
-# The ESP is the El Torito EFI image on CD and an appended GPT partition on USB.
+# The ESP is a GPT partition, which the El Torito boot catalog also points to.
 # --invariant, -i and mcopy -m fix volume ID and file times for reproducibility.
 make_efi_image() {
   local esp="$1" efi_img="$ISO_WORK/efiboot.img" efi_kib
@@ -186,7 +202,7 @@ make_efi_image() {
 
 # post_iso checked that the live tree has exactly one kernel
 build_live_boot() {
-  local tree="$1" label="$2" sums="$3" edition="$4"
+  local tree="$1" label="$2" verity="$3" edition="$4"
 
   local kdirs=("$tree"/usr/lib/modules/*/)
   local kver
@@ -194,7 +210,7 @@ build_live_boot() {
 
   local esp="$ISO_WORK/esp"
   copy_boot_files "$tree" "$esp" "$kver"
-  write_boot_menu "$esp" "$label" "$sums" "$edition"
+  write_boot_menu "$esp" "$label" "$verity" "$edition"
   make_efi_image "$esp"
 }
 
@@ -209,6 +225,7 @@ make_layer_images() {
     key="$(printf '%s\n' "${NEW_STAMP[$layer]}" "${EROFS_OPTS[*]}" | sha256sum | cut -d' ' -f1)"
 
     if [[ -z "${REBUILT[$layer]:-}" && -f "$cache/$layer.erofs" &&
+      -f "$cache/$layer.verity" && -f "$cache/$layer.roothash" &&
       "$(cat "$cache/$layer.key" 2>/dev/null)" == "$key" ]]; then
       log "Reusing $layer.erofs"
     else
@@ -222,58 +239,93 @@ make_layer_images() {
         make_erofs "$ISO_WORK/$layer.diff" "$cache/$layer.erofs" "$layer"
         rm -rf --one-file-system "$ISO_WORK/$layer.diff"
       fi
+      make_verity "$cache/$layer.erofs" "$cache/$layer.verity" "$cache/$layer.roothash" "$layer"
       echo "$key" >"$cache/$layer.key"
     fi
 
     cp --reflink=auto "$cache/$layer.erofs" "$layer_dir/$layer.erofs"
+    cp --reflink=auto "$cache/$layer.verity" "$layer_dir/$layer.verity"
+    cp "$cache/$layer.roothash" "$layer_dir/$layer.roothash"
   done
-
-  # For the checksum=y self-test in garuda-live-mount
-  (cd "$layer_dir" && sha256sum ./*.erofs >SHA256SUMS)
 }
 
-# UEFI only, like archiso without BIOS: the ESP image is the El Torito EFI boot
-# image on CD and GPT partition 2 on USB. systemd-boot has no BIOS support.
+# garuda.verity= of the boot entries: <layer>:<root hash>,...
+verity_arg() {
+  local layer_dir="$1" layer arg=""
+  for layer in "${ISO_LAYERS[@]}"; do
+    arg="${arg:+$arg,}$layer:$(tr -d '[:space:]' <"$layer_dir/$layer.roothash")"
+  done
+  echo "$arg"
+}
+
+# The repart.d definitions of the ISO: the ESP, then each layer and its hash
+# tree as partitions, found by the initrd by their names.
+#
+# The types follow the Discoverable Partitions Specification, so that
+# systemd-dissect accepts the image. systemd-loop@.service runs it before it
+# attaches a CD drive, see garuda-live-mount. The root layer is the root
+# partition with its hash tree, both read-only (bit 60). The other layers are
+# linux-generic with the no-auto flag (bit 63), which dissect skips: without
+# it, eight generic partitions are eight root candidates and dissect refuses
+# the image. NoAuto= of repart is ignored for linux-generic, so Flags= sets the
+# bit. The live command line has rd.systemd.gpt_auto=0, so nothing mounts the
+# root partition on its own.
+write_repart_definitions() {
+  local dir="$1" n=10 layer
+
+  mkdir -p "$dir"
+  printf '[Partition]\nType=esp\nCopyBlocks=/efiboot.img\n' >"$dir/00-esp.conf"
+
+  for layer in "${ISO_LAYERS[@]}"; do
+    if [[ "$layer" == root ]]; then
+      printf '[Partition]\nType=root\nLabel=garuda-root\nReadOnly=yes\nGrowFileSystem=no\nCopyBlocks=/root.erofs\n' \
+        >"$dir/$n-root.conf"
+      printf '[Partition]\nType=root-verity\nLabel=garuda-root-verity\nReadOnly=yes\nCopyBlocks=/root.verity\n' \
+        >"$dir/$((n + 1))-root-verity.conf"
+    else
+      printf '[Partition]\nType=linux-generic\nLabel=garuda-%s\nFlags=0x8000000000000000\nCopyBlocks=/%s.erofs\n' \
+        "$layer" "$layer" >"$dir/$n-$layer.conf"
+      printf '[Partition]\nType=linux-generic\nLabel=garuda-%s-verity\nFlags=0x8000000000000000\nCopyBlocks=/%s.verity\n' \
+        "$layer" "$layer" >"$dir/$((n + 1))-$layer-verity.conf"
+    fi
+    n=$((n + 10))
+  done
+}
+
+# UEFI only: a GPT disk image, which systemd-repart also makes a valid ISO 9660
+# image whose El Torito boot catalog points to the ESP. systemd-boot has no BIOS
+# support. The seed makes the partition and disk UUIDs reproducible.
 write_iso() {
-  local iso="$1" isoroot="$2" layer_dir="$3" label="$4" edition="$5"
+  local iso="$1" layer_dir="$2" label="$3"
 
   log "Writing $iso"
-  # xorriso applies SOURCE_DATE_EPOCH to volume dates only. File dates come
-  # from the tree.
-  find "$isoroot" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
-
-  local xorriso_args=(
-    -as mkisofs -quiet
-    -iso-level 3
-    -full-iso9660-filenames
-    -joliet
-    -joliet-long
-    -rational-rock
-    -volid "$label"
-    -appid "Garuda Linux $edition"
-    -publisher "Garuda Linux"
-    -preparer "image-builder"
-    -partition_offset 16
-    -append_partition 2 C12A7328-F81F-11D2-BA4B-00A0C93EC93B "$ISO_WORK/efiboot.img"
-    -appended_part_as_gpt
-    -eltorito-catalog boot.catalog
-    -e --interval:appended_partition_2:all::
-    -no-emul-boot
-    -output "$iso"
-  )
+  cp --reflink=auto "$ISO_WORK/efiboot.img" "$layer_dir/efiboot.img"
+  write_repart_definitions "$ISO_WORK/repart.d"
 
   rm -f "$iso"
-  xorriso "${xorriso_args[@]}" "$isoroot" 2>"$ISO_WORK/xorriso.log" ||
-    die "xorriso failed: $(tail -n 20 "$ISO_WORK/xorriso.log")"
+  touch "$iso"
+  systemd-repart --no-pager --offline=yes --dry-run=no --empty=allow --size=auto \
+    --seed="$(derived_uuid "iso-$label")" \
+    --root="$layer_dir" --definitions="$ISO_WORK/repart.d" \
+    --el-torito=yes --el-torito-volume="$label" --el-torito-publisher="Garuda Linux" \
+    "$iso" >"$ISO_WORK/repart.log" 2>&1 ||
+    die "systemd-repart failed: $(tail -n 20 "$ISO_WORK/repart.log")"
+
+  # VirtualBox takes only whole 2048-byte sectors. The backup GPT then moves to
+  # the new end.
+  local size
+  size="$(stat -c %s "$iso")"
+  if ((size % 2048)); then
+    truncate --size=$(((size + 2047) / 2048 * 2048)) "$iso"
+    sfdisk --quiet --relocate gpt-bak-std "$iso"
+  fi
 
   # A broken write must not look like a successful build
-  local size need=0 f
+  local need=0 f
   size="$(stat -c %s "$iso")"
-
-  for f in "$layer_dir"/*.erofs; do
+  for f in "$layer_dir"/*.erofs "$layer_dir"/*.verity; do
     need=$((need + $(stat -c %s "$f")))
   done
-
   ((size > need)) || die "$iso is smaller than its layers"
 }
 
@@ -311,15 +363,12 @@ post_iso() {
   local iso="$OUTPUT_DIR/garuda-$edition-$kernel-$VERSION.iso" label
   label="$(iso_label "$edition" "$VERSION")"
 
-  local isoroot="$ISO_WORK/iso"
-  local layer_dir="$isoroot/garuda-live/layers"
+  local layer_dir="$ISO_WORK/parts"
 
-  # The layer images first: the boot entries carry the hash of their SHA256SUMS
+  # The layer images first: the boot entries carry their verity root hashes
   make_layer_images "$layer_dir"
-  local sums
-  sums="$(sha256sum <"$layer_dir/SHA256SUMS")"
-  build_live_boot "$live" "$label" "${sums%% *}" "$edition"
-  write_iso "$iso" "$isoroot" "$layer_dir" "$label" "$edition"
+  build_live_boot "$live" "$label" "$(verity_arg "$layer_dir")" "$edition"
+  write_iso "$iso" "$layer_dir" "$label"
   finish_iso "$iso" "$edition"
 
   trap - EXIT

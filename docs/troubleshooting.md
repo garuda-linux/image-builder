@@ -51,7 +51,7 @@ The chaotic keyring in `mkosi.sandbox/` is outdated. Download it again:
 
 ### The ISO build stops with "smaller than its layers"
 
-The written ISO cannot hold the erofs layer files, so the write failed without an error. Check the output of _xorriso_ in the build log.
+The written ISO cannot hold the erofs layer images and their hash trees, so the write failed without an error. Check `iso-work/repart.log` of the build directory, which holds the output of _systemd-repart_.
 
 ### A file from mkosi.extra belongs to root
 
@@ -75,21 +75,26 @@ The ISO boots _systemd-boot_ with UEFI only.
 
 - The machine boots in legacy BIOS mode, or with the compatibility support module (CSM): switch the firmware to UEFI. Machines without UEFI cannot boot the ISO.
 - Secure Boot is on: _systemd-boot_ on the ISO is not signed, so the firmware refuses it. Turn Secure Boot off in the firmware settings.
-- The firmware lists the stick but drops back to its own menu: check the ESP of the ISO. `mdir -/ -i <file> ::/`, where `<file>` is the ESP image extracted from GPT partition 2 or `efiboot.img` in the build directory, must list `EFI/BOOT/BOOTX64.EFI`, `loader/entries/` and `garuda/`.
+- The firmware lists the stick but drops back to its own menu: check the ESP of the ISO. `mdir -/ -i <file> ::/`, where `<file>` is the ESP image extracted from GPT partition 1 or `efiboot.img` in the build directory, must list `EFI/BOOT/BOOTX64.EFI`, `loader/entries/` and `garuda/`.
 
 In the menu, `e` edits the options of an entry, for example to add `copytoram`, see [Architecture#Boot options](architecture.md#boot-options).
 
 ### The live system does not find its layers
 
-The initrd mounts the ISO by the label given in `garuda.label=` on the kernel command line, then the layer files from it. Check the serial log for the failing `run-garuda-iso.mount` unit or the output of `garuda-live-mount.service`. The label on the command line must match the volume label of the ISO, which `blkid` shows.
+The initrd finds the boot disk by the label given in `garuda.label=` on the kernel command line, then the partitions `garuda-<layer>` and `garuda-<layer>-verity` on it. Check the output of `garuda-live-mount.service` in the serial log:
 
-### Boot stops with "one or more layer files are damaged"
+- "no medium with the label": the label on the command line must match the volume label of the ISO, which `blkid` shows for the whole disk, for example `/dev/sdb`, not a partition.
+- "the layer partitions are missing": `lsblk -o NAME,PARTLABEL` on the disk must list the layer partitions. On a CD drive, they appear on the loop device of `systemd-loop@.service`: `journalctl -b -u "systemd-loop@*"` shows why it failed, for example a `systemd-dissect` message about the partitions of the image.
 
-The `checksum=y` check found a layer file that does not match `SHA256SUMS`. The medium is damaged or was written incompletely. Write the ISO again, preferably after checking the `.sha256` file of the ISO, or use another USB stick.
+### Boot stops with "the layer is damaged"
 
-### Boot stops with "SHA256SUMS does not match garuda.sums="
+The `checksum=y` check found a block of a layer that does not match its dm-verity hash tree. The medium is damaged or was written incompletely. Write the ISO again, preferably after checking the `.sha256` file of the ISO, or use another USB stick.
 
-`/garuda-live/layers/SHA256SUMS` on the medium is not the one the boot entry was written for: the layer files or the list were replaced, or the medium is damaged. Write the ISO again from a download whose `.sha256` file matches. A boot entry edited by hand needs the `garuda.sums=` value of the same build.
+### Boot stops with "does not match garuda.verity="
+
+A layer on the medium is not the one the boot entry was written for: the layer was replaced, or its hash tree is damaged. Write the ISO again from a download whose `.sha256` file matches. A boot entry edited by hand needs the `garuda.verity=` value of the same build. "has no root hash for" means the value lacks a layer.
+
+Without `checksum`, a damaged block shows up later as an I/O error in the live session, because dm-verity refuses to return it.
 
 ### Changes are lost although persistence was set
 
@@ -97,9 +102,8 @@ The boot log of `garuda-live-mount.service` says why, in one of these messages:
 
 - "persistence needs a USB stick or disk": the ISO was booted from a CD drive. Create an ext4 partition labelled `GARUDA_PERSIST` on another disk and boot with `persistence=any`.
 - "is not the boot stick of": the initrd did not change the disk, because its volume label is not the label of this ISO.
-- "less than 1 GiB free": the USB stick is too small for the ISO and a persistence partition.
+- "could not add the partition": _systemd-repart_ failed, most often because the USB stick has less than 1 GiB free behind the ISO. Its error is in the lines before.
 - "could not mount": the partition `GARUDA_PERSIST` exists but does not mount as ext4. Check it with `fsck.ext4` from another system. The session runs from RAM meanwhile.
-- "already holds a file system, not formatting it": a partition named `GARUDA_PERSIST` was found without the ext4 label. Format it by hand with `mkfs.ext4 -L GARUDA_PERSIST`.
 - "no persistence partition": no partition labelled `GARUDA_PERSIST` on the boot stick. A partition on another disk needs `persistence=any`.
 
 Each ISO version has its own directory on the partition, so after an update the session starts clean. The older directories stay on the partition.

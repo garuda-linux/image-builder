@@ -2,13 +2,13 @@
 Description=Garuda live layers
 Documentation=file:///usr/bin/garuda-live-mount
 DefaultDependencies=no
-Requires=run-garuda-iso.mount
-After=run-garuda-iso.mount
+# The script waits for the boot medium itself, by its label
+After=systemd-udev-trigger.service systemd-udevd.service
 Before=sysroot.mount
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# The checksum and copy messages belong on the screen
+# The verity check and copy messages belong on the screen
 StandardOutput=journal+console
 ExecStart=/usr/bin/garuda-live-mount
