@@ -3,13 +3,6 @@
 
 set -euo pipefail
 
-# Read by garuda-inxi. IMAGE_VERSION is the build date set by build.sh.
-# shellcheck source=/dev/null
-. /etc/lsb-release
-printf 'TIMESTAMP=%s\nCODENAME=%s\nEDITION=%s\n' \
-  "${IMAGE_VERSION:-}" "${DISTRIB_CODENAME:-}" "${EDITION:?set Environment=EDITION= in the edition profile}" \
-  >/usr/lib/garuda/garuda-release
-
 # mkosi copies mkosi.extra as root, but the greeter config must belong to plasmalogin
 greeter=/var/lib/plasmalogin/.config
 if [[ -d "$greeter" ]]; then

@@ -1,0 +1,12 @@
+#!/bin/bash
+# /usr/lib/garuda/garuda-release, read by garuda-inxi (PostInstallationScripts=
+# of desktop, lima and distrobox). EDITION comes from Environment= of the
+# profile, IMAGE_VERSION is the build date set by build.sh.
+set -euo pipefail
+
+# shellcheck source=/dev/null
+. /etc/lsb-release
+mkdir -p /usr/lib/garuda
+printf 'TIMESTAMP=%s\nCODENAME=%s\nEDITION=%s\n' \
+  "${IMAGE_VERSION:-}" "${DISTRIB_CODENAME:-}" "${EDITION:?set Environment=EDITION= in the profile}" \
+  >/usr/lib/garuda/garuda-release
