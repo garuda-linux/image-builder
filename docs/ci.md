@@ -91,7 +91,11 @@ Every build job keeps the package manifest of its output for a month, together w
 
 - the Arch Linux archive date of the mkosi tools tree (`ToolsTreeSnapshot=` in `mkosi.conf`), from `https://archive.archlinux.org/repos/last/lastsync`. Its commit message contains `[build distrobox]`, so the default branch pipeline after the merge builds and boot-checks the distrobox image with the new tools. The Renovate branches are not protected, so their branch pipelines only lint,
 - the container images of `.gitlab-ci.yml` and `ci/iso_pipeline.py`, and the dated Arch base image (`base-YYYYMMDD.0.N`) of `ci/Containerfile`,
-- `flake.lock`, the inputs of the development shell.
+- `flake.lock`, the inputs of the development shell,
+- Fedora's _shim_ (`SHIM_VERSION` in `lib/secureboot.sh`), from the `shim-x64` package of Fedora rawhide on `https://mdapi.fedoraproject.org`,
+- _nix-direnv_ in `.envrc`, from the GitHub releases of `nix-community/nix-direnv`.
+
+The _shim_ and _nix-direnv_ pins carry the hash of the download. After the version bump, Renovate runs `ci/renovate-hashes.sh`, which downloads the new file and writes its hash into the same merge request. The job allows only this command (`RENOVATE_ALLOWED_COMMANDS` in `.gitlab-ci.yml`). The merge request pipeline does not build, so check a _shim_ bump with a signed ISO build before merging.
 
 Nothing is merged automatically. The configuration is `renovate.json`.
 

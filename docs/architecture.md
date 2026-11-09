@@ -192,7 +192,7 @@ Without `SB_CA_CERT`, machines enroll `SB_CERT` itself. The ESP of a signed ISO:
 
 | Path                               | Content                                                                        |
 | ---------------------------------- | ------------------------------------------------------------------------------ |
-| `EFI/BOOT/BOOTX64.EFI`             | Fedora's _shim_ 16.1-7, signed by the Microsoft UEFI CA, pinned by sha512      |
+| `EFI/BOOT/BOOTX64.EFI`             | Fedora's _shim_, signed by the Microsoft UEFI CA, pinned by sha512             |
 | `EFI/BOOT/mmx64.efi`               | _MokManager_ from the same package                                             |
 | `EFI/BOOT/grubx64.efi`             | _systemd-boot_ of the live tree, signed with `SB_KEY`. _shim_ starts this name |
 | `EFI/Linux/garuda.efi`             | the UKI with all boot profiles, signed with `SB_KEY`                           |

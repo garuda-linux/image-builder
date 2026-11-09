@@ -28,6 +28,24 @@
         "image: (?<depName>[a-z0-9./-]+):(?<currentValue>[0-9][0-9.]*)"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^lib/secureboot\\.sh$/"],
+      "matchStrings": ["readonly SHIM_VERSION=\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "shim-x64",
+      "datasourceTemplate": "custom.fedora-rawhide",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?-(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.envrc$/"],
+      "matchStrings": [
+        "nix_direnv_version (?<currentValue>\\d+\\.\\d+\\.\\d+)",
+        "nix-community/nix-direnv/(?<currentValue>\\d+\\.\\d+\\.\\d+)/direnvrc"
+      ],
+      "depNameTemplate": "nix-community/nix-direnv",
+      "datasourceTemplate": "github-releases"
     }
   ],
   "customDatasources": {
@@ -36,6 +54,13 @@
       "format": "plain",
       "transformTemplates": [
         "{\"releases\": [{\"version\": $fromMillis($number(releases[0].version) * 1000, '[Y0001]/[M01]/[D01]')}]}"
+      ]
+    },
+    "fedora-rawhide": {
+      "defaultRegistryUrlTemplate": "https://mdapi.fedoraproject.org/rawhide/pkg/{{packageName}}",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": [{\"version\": version & \"-\" & release}]}"
       ]
     }
   },
@@ -51,6 +76,25 @@
       "matchDepNames": ["archlinux-archive"],
       "commitMessageTopic": "mkosi tools tree snapshot",
       "commitMessageSuffix": "[build distrobox]"
+    },
+    {
+      "description": "Fedora's shim of lib/secureboot.sh: the script downloads the new RPM and writes its sha512",
+      "matchDepNames": ["shim-x64"],
+      "commitMessageTopic": "shim",
+      "postUpgradeTasks": {
+        "commands": ["bash ci/renovate-hashes.sh shim"],
+        "fileFilters": ["lib/secureboot.sh"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "nix-direnv of .envrc: the script downloads the new direnvrc and writes its hash",
+      "matchDepNames": ["nix-community/nix-direnv"],
+      "postUpgradeTasks": {
+        "commands": ["bash ci/renovate-hashes.sh nix-direnv"],
+        "fileFilters": [".envrc"],
+        "executionMode": "branch"
+      }
     }
   ]
 }

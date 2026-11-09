@@ -7,8 +7,8 @@ SB_KEY="${SB_KEY:-}"
 SB_CERT="${SB_CERT:-}"
 SB_CA_CERT="${SB_CA_CERT:-}"
 
-# Fedora's shim, signed by the Microsoft UEFI CA. Same build and sha512 as
-# the AUR package shim-signed.
+# Fedora's shim, signed by the Microsoft UEFI CA. Renovate bumps the version,
+# ci/renovate-hashes.sh writes the sha512.
 readonly SHIM_VERSION="16.1-7"
 readonly SHIM_URL="https://kojipkgs.fedoraproject.org/packages/shim/${SHIM_VERSION%-*}/${SHIM_VERSION#*-}/x86_64/shim-x64-$SHIM_VERSION.x86_64.rpm"
 readonly SHIM_SHA512="642f7bd66f9d420fed5d5686d968a2065af445b4e7ba3d27a0a4f5852aefadd1835c485968e7bdc7cea5f377095bd3efcc8636837e3059a19cfab1c777e218f0"

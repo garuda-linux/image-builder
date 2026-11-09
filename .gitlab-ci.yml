@@ -116,6 +116,7 @@ renovate:
     RENOVATE_PLATFORM: gitlab
     RENOVATE_ENDPOINT: $CI_API_V4_URL
     RENOVATE_REPOSITORIES: $CI_PROJECT_PATH
+    RENOVATE_ALLOWED_COMMANDS: '["^bash ci/renovate-hashes\\.sh (shim|nix-direnv)$"]'
   script:
     - renovate
 
