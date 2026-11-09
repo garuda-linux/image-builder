@@ -2,8 +2,8 @@
 # shellcheck disable=SC2054 # QEMU options are comma-separated
 # Usage: vm-test [edition] [--keep] [--ram=<size>] [--vga=<type>]
 #   Boots mkosi.output/garuda-vm-<edition>.qcow2 in a QEMU window with UEFI,
-#   as virt-manager does. The VM writes to an overlay in ~/.cache/image-builder,
-#   so the built image stays unchanged.
+#   as virt-manager does. The VM writes to an overlay in mkosi.cache/qemu, so
+#   the built image stays unchanged.
 #   --keep        reuse the overlay and firmware variables of the last run
 #                 instead of starting from the built image
 #   --ram=<size>  RAM of the VM, default 6G
@@ -42,10 +42,14 @@ if [[ ! -e "$image" ]]; then
   exit 1
 fi
 
-state="${XDG_CACHE_HOME:-$HOME/.cache}/image-builder"
+# build.sh creates it, mkosi.cache belongs to root
+state="$root/mkosi.cache/qemu"
 overlay="$state/vm-test-$edition.qcow2"
 vars="$state/vm-test-$edition-vars.fd"
-mkdir -p "$state"
+if ! mkdir -p "$state" 2>/dev/null || [[ ! -w "$state" ]]; then
+  echo "$state is not writable. A build creates it, or: sudo install -d -o $USER $state" >&2
+  exit 1
+fi
 
 # UEFI only, as the image boots systemd-boot. edk2 ships with QEMU.
 share="$(dirname "$(readlink -f "$(command -v qemu-system-x86_64)")")/../share/qemu"

@@ -81,6 +81,12 @@ run_post() {
     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" "$PWD/build.sh" --post "$@"
 }
 
+# iso-test and vm-test run as the user, mkosi.cache belongs to root
+prepare_qemu_dir() {
+  mkdir -p mkosi.cache
+  install -d -o "$(stat -c %u .)" -g "$(stat -c %g .)" mkosi.cache/qemu
+}
+
 post_main() {
   load_stamps
 
@@ -144,6 +150,7 @@ main() {
   shift
 
   fetch_chaotic "$refresh"
+  prepare_qemu_dir
 
   case "$output" in
     distrobox)

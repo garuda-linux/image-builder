@@ -59,7 +59,7 @@ mkosi copies `mkosi.extra/` as root. Change the owner in the `mkosi.postinst.chr
 
 ## Live ISO
 
-Test each boot path with `iso-test`, see [Testing#Live ISO](testing.md#live-iso). The serial log of the boot is in `~/.cache/image-builder/iso-serial.log`.
+Test each boot path with `iso-test`, see [Testing#Live ISO](testing.md#live-iso). The serial log of the boot is in `mkosi.cache/qemu/iso-serial.log`.
 
 ### The boot stops in emergency mode
 

@@ -73,7 +73,7 @@ $ limactl start --name=garuda \
 
 ## Live ISO
 
-`iso-test` boots an ISO in QEMU with UEFI, attached as a USB stick, in a window. The serial console goes to `~/.cache/image-builder/iso-serial.log`. Without an argument, it boots the _mokka_ edition:
+`iso-test` boots an ISO in QEMU with UEFI, attached as a USB stick, in a window. The serial console goes to `mkosi.cache/qemu/iso-serial.log`. `build.sh` makes that directory for the owner of the checkout, because `mkosi.cache` belongs to root and the test tools run as the user. Without an argument, it boots the _mokka_ edition:
 
 ```console
 $ iso-test dr460nized
@@ -92,7 +92,7 @@ $ iso-test --disk
 $ iso-test --boot-disk
 ```
 
-The disk is `~/.cache/image-builder/iso-test-disk.qcow2` (30 GB). Delete it to start from an empty disk.
+The disk is `mkosi.cache/qemu/iso-test-disk.qcow2` (30 GB). Delete it to start from an empty disk.
 
 The VM has 6 GB of RAM. The `copytoram=y` boot option only copies the layer files when they fit with 2 GiB to spare, otherwise it boots from the medium. To test it with a `fast` build, give the VM more RAM:
 
@@ -120,7 +120,7 @@ Check on the installed system:
 $ vm-test dr460nized
 ```
 
-The VM writes to an overlay, `~/.cache/image-builder/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay of the last run again, for example to check a system after its first login. The serial console goes to `~/.cache/image-builder/vm-serial.log`.
+The VM writes to an overlay, `mkosi.cache/qemu/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay of the last run again, for example to check a system after its first login. The serial console goes to `mkosi.cache/qemu/vm-serial.log`.
 
 Check on the first boot:
 

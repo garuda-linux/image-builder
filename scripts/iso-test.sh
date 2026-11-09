@@ -35,9 +35,13 @@ if [[ ! -d "$root/mkosi.images/desktop/mkosi.profiles/$edition" ]]; then
 fi
 
 iso="$root/mkosi.output/garuda-$edition.iso"
-state="${XDG_CACHE_HOME:-$HOME/.cache}/image-builder"
+# build.sh creates it, mkosi.cache belongs to root
+state="$root/mkosi.cache/qemu"
 disk_image="$state/iso-test-disk.qcow2"
-mkdir -p "$state"
+if ! mkdir -p "$state" 2>/dev/null || [[ ! -w "$state" ]]; then
+  echo "$state is not writable. A build creates it, or: sudo install -d -o $USER $state" >&2
+  exit 1
+fi
 
 args=(
   -enable-kvm -machine q35 -cpu host -m "$ram" -smp 4
