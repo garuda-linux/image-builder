@@ -6,6 +6,7 @@
 #   ./build.sh lima [mkosi args]
 #   ./build.sh iso <edition> [mkosi args]
 #   ./build.sh vm <edition> [mkosi args]
+#   ./build.sh uki [mkosi args]
 #
 # Extra args go to mkosi as is, for example -E KERNEL=linux-lts.
 # Options, before the output name:
@@ -20,6 +21,10 @@
 # Environment:
 #   VERSION          image version, default today as YYYYMMDD
 #   ISO_COMPRESSION  fast (lz4, default) or max (zstd level 22, used by CI)
+#   SB_KEY, SB_CERT  Secure Boot key (PEM file or pkcs11: URI) and PEM cert,
+#                    signs the ISO boot chain and the generic UKI
+#   SB_CA_CERT       PEM cert of the CA that issued SB_CERT, the cert that
+#                    machines enroll (optional, default SB_CERT)
 #
 # Needs root (mkosi, loop devices, mounts).
 
@@ -58,6 +63,8 @@ usage() {
 
 # shellcheck source=lib/chaotic.sh
 source lib/chaotic.sh
+# shellcheck source=lib/secureboot.sh
+source lib/secureboot.sh
 # shellcheck source=lib/layers.sh
 source lib/layers.sh
 # shellcheck source=lib/disk.sh
@@ -68,6 +75,8 @@ source lib/lima.sh
 source lib/vm.sh
 # shellcheck source=lib/iso.sh
 source lib/iso.sh
+# shellcheck source=lib/uki.sh
+source lib/uki.sh
 # shellcheck source=lib/container.sh
 source lib/container.sh
 
@@ -79,7 +88,8 @@ run_post() {
 
   log "Post-build steps in the mkosi tools tree"
   mkosi --profile "$profile" sandbox -- env VERSION="$VERSION" ISO_COMPRESSION="$ISO_COMPRESSION" \
-    SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" "$PWD/build.sh" --post "$@"
+    SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" SB_KEY="$SB_KEY" SB_CERT="$SB_CERT" SB_CA_CERT="$SB_CA_CERT" \
+    "$PWD/build.sh" --post "$@"
 }
 
 # iso-test and vm-test run as the user, mkosi.cache belongs to root
@@ -90,6 +100,7 @@ prepare_qemu_dir() {
 
 post_main() {
   load_stamps
+  check_secureboot_certs
 
   case "$1" in
     distrobox)
@@ -108,6 +119,9 @@ post_main() {
     vm)
       post_vm "$2"
       write_sbom "$OUTPUT_DIR/garuda-vm.manifest" "garuda-vm-$2"
+      ;;
+    uki)
+      post_uki
       ;;
   esac
 }
@@ -148,6 +162,7 @@ main() {
 
   [[ $# -ge 1 ]] || usage 1
   [[ $EUID -eq 0 ]] || die "run as root"
+  check_secureboot
 
   if [[ "$post" == true ]]; then
     post_main "$@"
@@ -162,6 +177,7 @@ main() {
   shift
 
   fetch_chaotic "$refresh"
+  write_secureboot_tree
   prepare_qemu_dir
 
   case "$output" in
@@ -180,6 +196,13 @@ main() {
       run_mkosi
       write_stamps
       run_post lima lima
+      ;;
+    uki)
+      MKOSI_ARGS=(--profile uki "$@")
+      prepare_layers "" base root -- "$@"
+      run_mkosi
+      write_stamps
+      run_post uki uki
       ;;
     iso | vm)
       [[ $# -ge 1 ]] || die "$output needs an edition, for example: ./build.sh $output mokka"

@@ -28,6 +28,18 @@ run_in_container() {
     --workdir /build
   )
 
+  # The signing files at their host paths, which check_secureboot made absolute
+  if sb_enabled; then
+    sb_is_uri && die "a pkcs11: SB_KEY needs the token, which the builder container has no access to"
+    podman_args+=(
+      --env SB_KEY="$SB_KEY" --env SB_CERT="$SB_CERT" --env SB_CA_CERT="$SB_CA_CERT"
+      --volume "$SB_KEY:$SB_KEY:ro" --volume "$SB_CERT:$SB_CERT:ro"
+    )
+    if [[ -n "$SB_CA_CERT" ]]; then
+      podman_args+=(--volume "$SB_CA_CERT:$SB_CA_CERT:ro")
+    fi
+  fi
+
   log "Running the build in $BUILDER_IMAGE"
   exec podman run "${podman_args[@]}" "$BUILDER_IMAGE" ./build.sh "$@"
 }

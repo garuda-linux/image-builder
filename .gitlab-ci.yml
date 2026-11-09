@@ -265,3 +265,41 @@ lima:
       - mkosi.output/garuda-lima.spdx.json
     expire_in: 1 month
 
+uki:
+  extends: .build
+  rules:
+    - *protected_only
+    - *no_renovate
+    - *schedule
+    - *web
+    - if: $CI_COMMIT_MESSAGE =~ /\[build (all|uki)\]/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *shared
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *root
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [mkosi.profiles/uki/**/*]
+  script:
+    - ./build.sh uki
+    - |
+      if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
+        echo "Not the default branch: built, not published"
+        exit 0
+      fi
+
+      kernel="$(cat mkosi.output/root/usr/lib/modules/*/pkgbase)"
+      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-uki"
+      upload() {
+        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$2" "$packages/$1"
+      }
+
+      for suffix in "" -eac; do
+        file="garuda-$kernel-$VERSION$suffix.efi"
+        upload "$VERSION/$file" "$file"
+        upload "$VERSION/$file.sha256" "$file.sha256"
+        upload "latest/garuda-$kernel$suffix.efi" "$file"
+      done
+  artifacts:
+    paths:
+      - mkosi.output/garuda-*.efi.sha256
+    expire_in: 1 month

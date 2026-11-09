@@ -33,16 +33,17 @@ Add a new shared file to both, otherwise a change to it does not trigger the bui
 
 The pipeline runs in three stages:
 
-| Stage   | Job            | Purpose                                                                                                                         |
-| ------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                 |
-| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                            |
-| lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition                     |
-| lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                 |
-| lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _commitizen_) in check mode |
-| build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                             |
-| build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                     |
-| build   | `iso`          | runs the child pipeline with one `iso:<edition>` job per edition to build                                                       |
+| Stage   | Job            | Purpose                                                                                                                             |
+| ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                     |
+| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                                |
+| lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition                         |
+| lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                     |
+| lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _commitizen_) in check mode     |
+| build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                                 |
+| build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                         |
+| build   | `uki`          | builds the generic UKI, signed with the `SB_KEY`, `SB_CERT` and `SB_CA_CERT` file variables, and publishes the `garuda-uki` package |
+| build   | `iso`          | runs the child pipeline with one `iso:<edition>` job per edition to build                                                           |
 
 The flow of a pipeline on the default branch:
 
@@ -61,6 +62,7 @@ flowchart LR
   subgraph s3 [build, one job at a time on the build host]
     distrobox[distrobox] --> dcheck[boot-check] --> publish[push, sign, attest]
     lima[lima] --> lcheck[boot-check] --> upload[package upload]
+    uki[uki] --> usign[sign with SB_KEY] --> uupload[package upload]
     trigger[iso] --> child
 
     subgraph child [child pipeline]
@@ -69,7 +71,7 @@ flowchart LR
     end
   end
 
-  lint & flake --> distrobox & lima & trigger
+  lint & flake --> distrobox & lima & uki & trigger
   generate -- iso-pipeline.yml --> trigger
 ```
 
@@ -120,6 +122,7 @@ The commit message tags:
 | `[build all]`       | everything             |
 | `[build distrobox]` | the distrobox image    |
 | `[build lima]`      | the Lima image         |
+| `[build uki]`       | the generic UKI        |
 | `[build iso]`       | every edition ISO      |
 | `[build <edition>]` | the ISO of `<edition>` |
 
@@ -132,6 +135,10 @@ The `lima` job uploads the disk image to the generic package `garuda-lima` twice
 ```text
 https://gitlab.com/api/v4/projects/garuda-linux%2Ftools%2Fimage-builder/packages/generic/garuda-lima/latest/garuda-lima.qcow2
 ```
+
+The `uki` job uploads `garuda-<kernel>-<version>.efi`, `garuda-<kernel>-<version>-eac.efi` and their `.sha256` files to the generic package `garuda-uki` under `<version>/`, and the UKIs as `latest/garuda-<kernel>.efi` and `latest/garuda-<kernel>-eac.efi`.
+
+Signing in CI: add `SB_KEY`, `SB_CERT` and `SB_CA_CERT` as protected variables of type _File_ in the project settings. GitLab then sets each variable to the path of a file with its content, which is what `build.sh` expects, see [Building#Signing](building.md#signing). Without them, the jobs build unsigned. The ISO jobs pick them up the same way. Only the signing key is in CI, the CA key stays offline.
 
 GitLab keeps every upload of the same file name as a duplicate and serves the newest one. Delete old duplicates under _Deploy > Package registry_ if storage matters.
 

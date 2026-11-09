@@ -18,11 +18,13 @@ flowchart LR
   subgraph outputs [Outputs]
     distrobox[distrobox OCI image]
     lima[Lima disk]
+    uki[generic UKI]
     iso[live ISO]
   end
 
   base ==> distrobox
   root ==> lima
+  root ==> uki
   root & desktop & mhwd & live ==> iso
   initrd ==> iso
 ```
@@ -60,18 +62,21 @@ An output is an mkosi profile in the `mkosi.profiles/` directory that picks the 
 | `distrobox` | `mkosi.profiles/distrobox/` | `base`          | `garuda-distrobox/`, an OCI image directory |
 | `lima`      | `mkosi.profiles/lima/`      | `root`          | `garuda-lima-<version>.qcow2`               |
 | `iso`       | `mkosi.profiles/iso/`       | all five layers | `garuda-<edition>-<kernel>-<version>.iso`   |
+| `uki`       | `mkosi.profiles/uki/`       | `root`          | `garuda-<kernel>-<version>.efi`, `-eac.efi` |
 
 mkosi builds the layers and the distrobox image. `build.sh` does the rest: the Lima disk layout with systemd-boot, and the ISO assembly. It only parses the command line and calls the parts in `lib/`:
 
-| File               | Part                                                           |
-| ------------------ | -------------------------------------------------------------- |
-| `lib/chaotic.sh`   | chaotic keyring and mirrorlist, signature check                |
-| `lib/layers.sh`    | mkosi call, layer stamps and reuse, preset check, SBOM         |
-| `lib/disk.sh`      | disk images: btrfs layout, fstab, systemd-boot and UKIs, qcow2 |
-| `lib/lima.sh`      | Lima disk on top of `lib/disk.sh`                              |
-| `lib/vm.sh`        | VM image of an edition: user, locale, snapshots                |
-| `lib/iso.sh`       | live ISO: layer diffs, erofs, dm-verity, repart                |
-| `lib/container.sh` | the builder container (`--container`)                          |
+| File                | Part                                                           |
+| ------------------- | -------------------------------------------------------------- |
+| `lib/chaotic.sh`    | chaotic keyring and mirrorlist, signature check                |
+| `lib/layers.sh`     | mkosi call, layer stamps and reuse, preset check, SBOM         |
+| `lib/disk.sh`       | disk images: btrfs layout, fstab, systemd-boot and UKIs, qcow2 |
+| `lib/lima.sh`       | Lima disk on top of `lib/disk.sh`                              |
+| `lib/vm.sh`         | VM image of an edition: user, locale, snapshots                |
+| `lib/secureboot.sh` | Secure Boot signing, shim download, cert for the root layer    |
+| `lib/uki.sh`        | generic UKIs of the root layer, rescue and Easy Anti-Cheat     |
+| `lib/iso.sh`        | live ISO: layer diffs, erofs, dm-verity, repart                |
+| `lib/container.sh`  | the builder container (`--container`)                          |
 
 ## Live ISO
 
@@ -79,8 +84,8 @@ The ISO is a GPT disk image made by _systemd-repart_, as [KDE Linux](https://inv
 
 1. It computes the difference of each layer to the one below it: new and changed files, and deleted files as overlayfs whiteouts. `root` stays whole, `desktop` is compared with `root`, `mhwd` and `live` with `desktop`.
 2. It packs each result as an _erofs_ image and computes its _dm-verity_ hash tree with `veritysetup format`. Salt and UUIDs are derived from the layer name and `SOURCE_DATE_EPOCH`, so the images depend only on their content.
-3. It takes the live initrd from the `live-initrd` image. mkosi builds it from its own initrd configuration (`Include=mkosi-initrd`), a plain systemd initrd, with the kernel modules of the `root` layer reduced to the mkosi default set plus what the live ISO needs: `dm-verity`, `loop` and the USB, SD card and ATA drivers. _systemd-boot_ reads only FAT, so kernel, initrd and microcode go into a FAT image, the ESP of the ISO, in `/garuda/` (`vmlinuz-x86_64`, `initramfs-x86_64.img`, `intel-ucode.img`, `amd-ucode.img`), next to _systemd-boot_ from the live tree as `EFI/BOOT/BOOTX64.EFI`.
-4. It writes the boot menu into the ESP image: six Type 1 entries in `loader/entries/`, open source and proprietary (NVIDIA) drivers, each normal, copied to RAM (`copytoram`) and with persistence, plus _memtest86+_ and the firmware setup. The entries carry the verity root hash of each layer. The menu has no language, keyboard or time zone choices: the live session and the installer ask for them.
+3. It takes the live initrd from the `live-initrd` image. mkosi builds it from its own initrd configuration (`Include=mkosi-initrd`), a plain systemd initrd, with the kernel modules of the `root` layer reduced to the mkosi default set plus what the live ISO needs: `dm-verity`, `loop` and the USB, SD card and ATA drivers.
+4. It builds one UKI, `EFI/Linux/garuda.efi`, with kernel, microcode, the live initrd and one profile per boot entry (`ukify --profile`, `--join-profile`). Each profile has its own `.cmdline` with the verity root hash of each layer: open source and proprietary (NVIDIA) drivers, each normal, copied to RAM (`copytoram`) and with persistence, plus an entry that verifies the medium first. Profile 0 (open source drivers) is the default. systemd-boot lists each profile as `Garuda Linux <edition> (<title>)`. _systemd-boot_ reads only FAT, so the UKI goes into a FAT image, the ESP of the ISO, next to the boot loader and _memtest86+_ in `EFI/garuda/`, see [Secure Boot](#secure-boot). The menu has no language, keyboard or time zone choices: the live session and the installer ask for them.
 5. _systemd-repart_ writes the image from definitions in `iso-work/repart.d/`: the ESP, then for each layer a partition `garuda-<layer>` with the erofs image and a partition `garuda-<layer>-verity` with its hash tree, all copied with `CopyBlocks=`. The partition types follow the Discoverable Partitions Specification, so that `systemd-dissect` accepts the image, which `systemd-loop@.service` runs before it attaches a CD drive: the `root` layer is the `root` partition with its hash tree as `root-verity`, both read-only, the other layers are `linux-generic` with the no-auto flag (bit 63), which dissect skips. Without the flag, the eight generic partitions would all be root candidates and dissect refuses the image. The live command line has `rd.systemd.gpt_auto=0`, so nothing mounts the root partition on its own. The image is padded to whole 2048-byte sectors, which VirtualBox requires.
 
 | Partition               | Type                     | Content                    |
@@ -94,7 +99,7 @@ The ISO is a GPT disk image made by _systemd-repart_, as [KDE Linux](https://inv
 
 At boot:
 
-1. _systemd-boot_ shows the entries of the ESP for 10 seconds and starts the kernel with `garuda.label=<label>` and `garuda.verity=<layer>:<hash>,...`, where `<label>` is the El Torito volume label, for example `GARUDA_MOKKA_20261107`, and `<hash>` the verity root hash of each layer. There is no `root=`: the root file system comes from the initrd's own units.
+1. _systemd-boot_ shows the profiles of the UKI for 10 seconds and starts it with `garuda.label=<label>` and `garuda.verity=<layer>:<hash>,...`, where `<label>` is the El Torito volume label, for example `GARUDA_MOKKA_20261107`, and `<hash>` the verity root hash of each layer. There is no `root=`: the root file system comes from the initrd's own units.
 2. `garuda-live-mount.service` of the initrd (`mkosi.images/live-initrd/mkosi.extra/`) finds the boot disk by its label and the layer partitions on it by their names. The kernel does not read the GPT of a CD drive, which has 2048-byte sectors, so on a CD drive udev starts `systemd-loop@.service` of systemd, which attaches the drive to a loop device with 512-byte sectors and partition scan, and the initrd waits for that loop device.
 3. It sets up the writable layer, in RAM or on the persistence partition, copies the layer partitions to RAM when `copytoram` is set, reads every layer once through dm-verity when `checksum` is set, opens each layer as a dm-verity device with its root hash and mounts it read-only under `/run/garuda/layers/<layer>`.
 4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `mhwd`, `desktop`, `root`, with the writable layer on top.
@@ -102,7 +107,7 @@ At boot:
 
 ### Boot options
 
-The initrd reads these kernel command line options. All but `persistence` work as in the garuda-tools _miso_ module. Add them with `e` on a boot entry of the _systemd-boot_ menu:
+The initrd reads these kernel command line options. All but `persistence` work as in the garuda-tools _miso_ module. With Secure Boot off, add them with `e` on an entry of the _systemd-boot_ menu. With Secure Boot on, systemd-stub uses only the signed command line of the profile:
 
 | Option                     | Effect                                                                                                                                                                                                                            |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -116,7 +121,49 @@ The initrd reads these kernel command line options. All but `persistence` work a
 
 `checksum` and `copytoram` also take the form `<option>=y`. `<size>` takes the tmpfs size formats, for example `8G` or `50%`. dm-verity checks every block when it is read, also without `checksum`. `checksum` reads the whole ISO once before the boot, so a damaged medium shows up at once and not later in the session, but booting from a slow medium takes minutes longer. The normal and persistence entries leave it out. The copytoram entries set it, because they read the whole medium anyway and the check then runs on the RAM copy. The last entry of the menu, "verify the medium, then boot", sets it for a normal boot.
 
-`garuda.verity=` only protects as far as the boot entry itself can be trusted: it sits in a boot entry on the same medium. Without Secure Boot and signed boot entries, it catches damaged or swapped layers, not a medium that was rebuilt on purpose.
+`garuda.verity=` only protects as far as the command line itself can be trusted. In a signed build, it is part of the signed UKI, so Secure Boot covers it, see [Secure Boot](#secure-boot). In an unsigned build, it catches damaged or swapped layers, not a medium that was rebuilt on purpose.
+
+### Secure Boot
+
+`build.sh` signs the boot chain of the ISO when `SB_KEY` and `SB_CERT` are set (`lib/secureboot.sh`). Without them, the ISO has the same UKI unsigned, and _systemd-boot_ is `EFI/BOOT/BOOTX64.EFI` directly.
+
+| Variable     | Content                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `SB_KEY`     | PEM private key file, or a `pkcs11:` URI of a YubiKey or HSM, used through the OpenSSL `pkcs11` provider                                 |
+| `SB_CERT`    | PEM certificate of the key, the signing certificate                                                                                      |
+| `SB_CA_CERT` | PEM certificate of the CA that issued `SB_CERT`, optional. Machines enroll this one, so the signing key rotates without a new enrollment |
+
+Without `SB_CA_CERT`, machines enroll `SB_CERT` itself. The ESP of a signed ISO:
+
+| Path                               | Content                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| `EFI/BOOT/BOOTX64.EFI`             | Fedora's _shim_ 16.1-7, signed by the Microsoft UEFI CA, pinned by sha512      |
+| `EFI/BOOT/mmx64.efi`               | _MokManager_ from the same package                                             |
+| `EFI/BOOT/grubx64.efi`             | _systemd-boot_ of the live tree, signed with `SB_KEY`. _shim_ starts this name |
+| `EFI/Linux/garuda.efi`             | the UKI with all boot profiles, signed with `SB_KEY`                           |
+| `EFI/garuda/memtest86x64.efi`      | _memtest86+_, signed with `SB_KEY`                                             |
+| `EFI/garuda/garuda-secureboot.cer` | the enrollment cert (`SB_CA_CERT`, or `SB_CERT`) in DER form, for _MokManager_ |
+
+The chain from the firmware to every block of the live system:
+
+```mermaid
+flowchart TD
+  fw[UEFI firmware, Secure Boot on] -->|db: Microsoft UEFI CA| shim[shim, BOOTX64.EFI]
+  shim -->|MOK list: Garuda CA| sdb[systemd-boot, grubx64.efi]
+  shim -. cert not enrolled yet .-> mm[MokManager: enroll EFI/garuda/garuda-secureboot.cer, reboot]
+  mm -.-> shim
+  sdb -->|shim protocol, MOK list| uki[garuda.efi: kernel, microcode, initrd, signed .cmdline per profile]
+  sdb -->|shim protocol| mt[memtest86+]
+  uki -->|garuda.verity= in the signed .cmdline| vt[dm-verity root hash of each layer]
+  vt -->|every block read| layers[erofs layers root, desktop, mhwd, live]
+```
+
+On the first boot with Secure Boot on, _shim_ does not know the Garuda CA yet and starts _MokManager_. Choose _Enroll key from disk_, pick `EFI/garuda/garuda-secureboot.cer` on the boot medium, confirm and reboot. The CA then stays in the MOK list of the machine, and _shim_ chains the signatures, which name `SB_CERT`, to it. With Secure Boot off, _shim_ starts _systemd-boot_ without checks.
+
+A signed build also puts the enrollment cert into the `root` layer at `/usr/share/garuda/secureboot/garuda-secureboot.crt`, and its hash into the stamp of `root`. `build.sh` checks that `SB_CERT` is issued by `SB_CA_CERT` and that `SB_KEY` belongs to `SB_CERT`, on the host when it has `openssl` and again in the post-build steps, which also check every signature with `sbverify`. A `pkcs11:` key works only for builds on the host, not in the builder container.
+
+> [!NOTE]
+> Installed systems build their UKIs on the machine, so the Garuda key cannot sign them, and their normal entries do not boot with Secure Boot on. The [generic UKIs](building.md#generic-uki) are the signed base for the rescue and Easy Anti-Cheat entries that do. Installed systems are planned to enroll the Garuda CA into the firmware `db` with _sbctl_ instead of the MOK list, so that chain starts at the firmware without _shim_.
 
 ### Persistence
 

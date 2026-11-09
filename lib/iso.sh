@@ -102,97 +102,106 @@ make_verity() {
     --root-hash-file="$roothash" "$data" "$hash" >/dev/null
 }
 
-# systemd-boot reads kernels and initrds only from FAT, so everything it boots
-# goes into the ESP image. The initrd has the modules of the root layer, so the
-# kernels must match.
-copy_boot_files() {
-  local tree="$1" esp="$2" kver="$3" initrd
+# Signed builds start shim, which checks systemd-boot against the MOK list.
+# Unsigned builds start systemd-boot directly.
+install_boot_loader() {
+  local tree="$1" esp="$2" sdboot="$1/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
+  [[ -f "$sdboot" ]] || die "$sdboot missing in the live layer"
+
+  mkdir -p "$esp/EFI/BOOT" "$esp/EFI/garuda" "$esp/loader/entries"
+  if sb_enabled; then
+    fetch_shim "$ISO_WORK/shim"
+    install -m 0644 "$ISO_WORK/shim/shimx64.efi" "$esp/EFI/BOOT/BOOTX64.EFI"
+    install -m 0644 "$ISO_WORK/shim/mmx64.efi" "$esp/EFI/BOOT/mmx64.efi"
+
+    # shim starts grubx64.efi from its own directory
+    sb_sign "$sdboot" "$esp/EFI/BOOT/grubx64.efi"
+    sb_verify "$esp/EFI/BOOT/grubx64.efi"
+    sb_write_der "$esp/EFI/garuda/garuda-secureboot.cer"
+  else
+    install -m 0644 "$sdboot" "$esp/EFI/BOOT/BOOTX64.EFI"
+  fi
+
+  if [[ -f "$tree/boot/memtest86+/memtest86x64.efi" ]]; then
+    sb_sign "$tree/boot/memtest86+/memtest86x64.efi" "$esp/EFI/garuda/memtest86x64.efi"
+    sb_verify "$esp/EFI/garuda/memtest86x64.efi"
+  fi
+}
+
+# id|title|options of each UKI profile, profile 0 is the default. checksum=y
+# reads the whole medium first and stops on a damaged block.
+boot_profiles() {
+  local free="driver=free nouveau.modeset=1 i915.modeset=1 radeon.modeset=1"
+  local nonfree="driver=nonfree nouveau.modeset=0 i915.modeset=1 radeon.modeset=1"
+
+  printf '%s|%s|%s\n' \
+    free "open source drivers" "$free" \
+    nonfree "proprietary drivers (NVIDIA)" "$nonfree" \
+    free-copytoram "open source drivers, copied to RAM" "$free copytoram checksum=y" \
+    nonfree-copytoram "proprietary drivers (NVIDIA), copied to RAM" "$nonfree copytoram checksum=y" \
+    free-persistence "open source drivers, with persistence" "$free persistence" \
+    nonfree-persistence "proprietary drivers (NVIDIA), with persistence" "$nonfree persistence" \
+    verify "verify the medium, then boot (open source drivers)" "$free checksum=y"
+}
+
+# One signature covers kernel, initrd and the verity root hashes on the command
+# line, so Secure Boot reaches every block of the layers. No quiet or splash.
+build_live_uki() {
+  local tree="$1" esp="$2" kver="$3" label="$4" verity="$5" edition="$6" initrd
+  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1"
+
   initrd="$(layer_output live-initrd)"
   [[ -f "$initrd" ]] || die "$initrd not found"
   [[ -d "$OUTPUT_DIR/root/usr/lib/modules/$kver" ]] ||
     die "the live kernel $kver differs from the root layer kernel, and the initrd has the root layer modules"
 
-  local sdboot="$tree/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
-  [[ -f "$sdboot" ]] || die "$sdboot missing in the live layer"
-
-  mkdir -p "$esp/EFI/BOOT" "$esp/garuda" "$esp/loader/entries"
-  install -m 0644 "$sdboot" "$esp/EFI/BOOT/BOOTX64.EFI"
-  install -m 0644 "$tree/usr/lib/modules/$kver/vmlinuz" "$esp/garuda/vmlinuz-x86_64"
-  install -m 0644 "$initrd" "$esp/garuda/initramfs-x86_64.img"
-
   local ucode
-  for ucode in intel amd; do
-    [[ -f "$tree/boot/$ucode-ucode.img" ]] || die "$tree/boot/$ucode-ucode.img missing, the boot entries load it"
-    install -m 0644 "$tree/boot/$ucode-ucode.img" "$esp/garuda/$ucode-ucode.img"
+  for ucode in amd intel; do
+    [[ -f "$tree/boot/$ucode-ucode.img" ]] || die "$tree/boot/$ucode-ucode.img missing, the UKI loads it"
   done
 
-  if [[ -f "$tree/boot/memtest86+/memtest86x64.efi" ]]; then
-    install -m 0644 "$tree/boot/memtest86+/memtest86x64.efi" "$esp/garuda/memtest86x64.efi"
-  fi
+  local work="$ISO_WORK/uki" stubs="$tree/usr/lib/systemd/boot/efi"
+  mkdir -p "$work" "$esp/EFI/Linux"
+  sed "s/^PRETTY_NAME=.*/PRETTY_NAME=\"Garuda Linux $edition\"/" "$tree/usr/lib/os-release" >"$work/os-release"
+
+  log "Building the boot UKI"
+  local n=0 id title args joins=()
+  while IFS='|' read -r id title args; do
+    printf 'ID=%s\nTITLE=%s\n' "$id" "$title" >"$work/$n.profile"
+    echo "$common $args" >"$work/$n.cmdline"
+    if ((n > 0)); then
+      ukify build --stub="$stubs/addonx64.efi.stub" --profile="@$work/$n.profile" \
+        --cmdline="@$work/$n.cmdline" --output="$work/$n.efi" >/dev/null
+      joins+=("--join-profile=$work/$n.efi")
+    fi
+    n=$((n + 1))
+  done < <(boot_profiles)
+
+  local sign_args=()
+  mapfile -t sign_args < <(sb_ukify_args)
+  ukify build --stub="$stubs/linuxx64.efi.stub" --linux="$tree/usr/lib/modules/$kver/vmlinuz" \
+    --initrd="$tree/boot/amd-ucode.img" --initrd="$tree/boot/intel-ucode.img" --initrd="$initrd" \
+    --uname="$kver" --os-release="@$work/os-release" \
+    --profile="@$work/0.profile" --cmdline="@$work/0.cmdline" "${joins[@]}" \
+    "${sign_args[@]}" --output="$esp/EFI/Linux/garuda.efi" >/dev/null
+  sb_verify "$esp/EFI/Linux/garuda.efi"
 }
 
-# garuda.label= lets the initrd find the boot medium. garuda.verity= holds the
-# dm-verity root hash of each layer, so every block read is checked. No quiet
-# or splash, so boot messages stay visible. Each driver choice in three modes:
-# normal, copied to RAM, with persistence. checksum=y reads the whole medium
-# before the boot and stops with a clear message on a damaged block. The
-# copytoram entries read the medium anyway, so they have it, and a last entry
-# adds it to a normal boot, like the media check of other distributions. The
-# options of an entry can be changed with e in the menu.
+# The UKI in EFI/Linux needs no entry file. openQA needs the editor.
 write_boot_menu() {
-  local esp="$1" label="$2" verity="$3" edition="$4"
-  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1"
+  local esp="$1"
 
   log "Writing the systemd-boot menu"
   cat >"$esp/loader/loader.conf" <<CONF
 timeout 10
-default garuda-1-*
+default garuda.efi
 editor yes
 auto-firmware yes
 console-mode keep
 CONF
 
-  local n=0 mode mode_args mode_title driver driver_args driver_title
-  for mode in normal copytoram persistence; do
-    case "$mode" in
-      normal) mode_args="" mode_title="" ;;
-      copytoram) mode_args=" copytoram checksum=y" mode_title=", copied to RAM" ;;
-      persistence) mode_args=" persistence" mode_title=", with persistence" ;;
-    esac
-    for driver in free nonfree; do
-      if [[ "$driver" == free ]]; then
-        driver_args="driver=free nouveau.modeset=1 i915.modeset=1 radeon.modeset=1"
-        driver_title="open source drivers"
-      else
-        driver_args="driver=nonfree nouveau.modeset=0 i915.modeset=1 radeon.modeset=1"
-        driver_title="proprietary drivers (NVIDIA)"
-      fi
-      n=$((n + 1))
-      cat >"$esp/loader/entries/garuda-$n-$driver-$mode.conf" <<ENTRY
-title    Garuda Linux $edition: $driver_title$mode_title
-sort-key garuda-$n
-linux    /garuda/vmlinuz-x86_64
-initrd   /garuda/amd-ucode.img
-initrd   /garuda/intel-ucode.img
-initrd   /garuda/initramfs-x86_64.img
-options  $common $driver_args$mode_args
-ENTRY
-    done
-  done
-
-  n=$((n + 1))
-  cat >"$esp/loader/entries/garuda-$n-verify.conf" <<ENTRY
-title    Garuda Linux $edition: verify the medium, then boot (open source drivers)
-sort-key garuda-$n
-linux    /garuda/vmlinuz-x86_64
-initrd   /garuda/amd-ucode.img
-initrd   /garuda/intel-ucode.img
-initrd   /garuda/initramfs-x86_64.img
-options  $common driver=free nouveau.modeset=1 i915.modeset=1 radeon.modeset=1 checksum=y
-ENTRY
-
-  if [[ -f "$esp/garuda/memtest86x64.efi" ]]; then
-    printf 'title    Memory test (memtest86+)\nsort-key zz-memtest\nefi      /garuda/memtest86x64.efi\n' \
+  if [[ -f "$esp/EFI/garuda/memtest86x64.efi" ]]; then
+    printf 'title    Memory test (memtest86+)\nsort-key zz-memtest\nefi      /EFI/garuda/memtest86x64.efi\n' \
       >"$esp/loader/entries/memtest.conf"
   fi
 }
@@ -218,17 +227,13 @@ make_efi_image() {
   mcopy -s -m -i "$efi_img" "$esp"/* ::/
 }
 
-# post_iso checked that the live tree has exactly one kernel
 build_live_boot() {
-  local tree="$1" label="$2" verity="$3" edition="$4"
-
-  local kdirs=("$tree"/usr/lib/modules/*/)
-  local kver
-  kver="$(basename "${kdirs[0]}")"
+  local tree="$1" kver="$2" label="$3" verity="$4" edition="$5"
 
   local esp="$ISO_WORK/esp"
-  copy_boot_files "$tree" "$esp" "$kver"
-  write_boot_menu "$esp" "$label" "$verity" "$edition"
+  install_boot_loader "$tree" "$esp"
+  build_live_uki "$tree" "$esp" "$kver" "$label" "$verity" "$edition"
+  write_boot_menu "$esp"
   make_efi_image "$esp"
 }
 
@@ -381,10 +386,9 @@ post_iso() {
     [[ -d "$OUTPUT_DIR/$layer" ]] || die "$OUTPUT_DIR/$layer not found"
   done
 
-  local live="$OUTPUT_DIR/live" kernel
-  local kdirs=("$live"/usr/lib/modules/*/)
-  [[ ${#kdirs[@]} -eq 1 && -d "${kdirs[0]}" ]] || die "expected exactly one kernel in $live"
-  kernel="$(cat "${kdirs[0]}pkgbase")"
+  local live="$OUTPUT_DIR/live" info kver kernel
+  info="$(tree_kernel "$live")"
+  kver="${info%%$'\n'*}" kernel="${info#*$'\n'}"
 
   ISO_WORK="$OUTPUT_DIR/iso-work"
   cleanup_iso
@@ -398,7 +402,7 @@ post_iso() {
 
   # The layer images first: the boot entries carry their verity root hashes
   make_layer_images "$layer_dir"
-  build_live_boot "$live" "$label" "$(verity_arg "$layer_dir")" "$edition"
+  build_live_boot "$live" "$kver" "$label" "$(verity_arg "$layer_dir")" "$edition"
   write_iso "$iso" "$layer_dir" "$label"
   finish_iso "$iso" "$edition" "$kernel"
 

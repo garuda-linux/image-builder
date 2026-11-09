@@ -79,7 +79,7 @@ The ISO boots _systemd-boot_ with UEFI only.
 
 - The machine boots in legacy BIOS mode, or with the compatibility support module (CSM): switch the firmware to UEFI. Machines without UEFI cannot boot the ISO.
 - Secure Boot is on: _systemd-boot_ on the ISO is not signed, so the firmware refuses it. Turn Secure Boot off in the firmware settings.
-- The firmware lists the stick but drops back to its own menu: check the ESP of the ISO. `mdir -/ -i <file> ::/`, where `<file>` is the ESP image extracted from GPT partition 1 or `efiboot.img` in the build directory, must list `EFI/BOOT/BOOTX64.EFI`, `loader/entries/` and `garuda/`.
+- The firmware lists the stick but drops back to its own menu: check the ESP of the ISO. `mdir -/ -i <file> ::/`, where `<file>` is the ESP image extracted from GPT partition 1 or `efiboot.img` in the build directory, must list `EFI/BOOT/BOOTX64.EFI`, `EFI/Linux/garuda.efi` and `loader/loader.conf`, and for a signed ISO also `EFI/BOOT/grubx64.efi` and `EFI/BOOT/mmx64.efi`. With Secure Boot on and the Garuda cert not enrolled, _MokManager_ starts instead, see [Architecture#Secure Boot](architecture.md#secure-boot).
 
 In the menu, `e` edits the options of an entry, for example to add `copytoram`, see [Architecture#Boot options](architecture.md#boot-options).
 

@@ -46,6 +46,7 @@ Give `build.sh` the output and, for an ISO or a VM image, the edition:
 # ./build.sh lima
 # ./build.sh iso mokka
 # ./build.sh vm mokka
+# ./build.sh uki
 ```
 
 In the development shell, `build` runs the same in the builder container:
@@ -86,6 +87,7 @@ The results are in the `mkosi.output/` directory:
 | `garuda-lima-<version>.qcow2`                          | disk image, systemd-boot with UKIs (UEFI only), Garuda btrfs layout        |
 | `garuda-<edition>-<kernel>-<version>.iso`              | live ISO for UEFI, USB stick and CD, with `.sha256` and `.manifest` files  |
 | `garuda-vm-<edition>-<version>.qcow2`                  | installed system of an edition for virt-manager, see [VM image](#vm-image) |
+| `garuda-<kernel>-<version>.efi`, `...-eac.efi`         | generic UKIs with `.sha256` files, see [Generic UKI](#generic-uki)         |
 | `garuda-<edition>.iso`, `garuda-lima.qcow2`            | links to the newest build                                                  |
 | `<output>.manifest`, `garuda-<edition>.iso.manifest`   | JSON package list written by mkosi, under a name without version           |
 | `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                           |
@@ -105,6 +107,47 @@ After mkosi has built the layers, `build.sh` checks that every unit enabled in o
 - `pacman-init.service` makes the pacman keyring on the first boot, which postcfg of Calamares does on installs.
 
 The disk has a virtual size of 40 GB and stays small as a file. On every boot, _systemd-repart_ grows the root partition and its btrfs to the end of the disk (`/usr/lib/repart.d/50-root.conf`), so a disk made larger with `qemu-img resize` is used on the next boot. Create the VM in virt-manager with _Import existing disk image_ and UEFI firmware, or try it with `vm-test`, see [Testing#VM image](testing.md#vm-image). The image has no graphics drivers of the hardware detection: the open drivers of QEMU's virtual graphics are enough.
+
+## Generic UKI
+
+`./build.sh uki` packs the kernel of the `root` layer and its no-hostonly fallback initramfs (`/boot/initramfs-<kernel>-fallback.img`, built by _dracut-install-garuda_ with the hooks of installed systems) into two UKIs with _ukify_ (`lib/uki.sh`). The initramfs is not tied to one machine, so the UKIs boot any install, and they are the signed base for the rescue and Easy Anti-Cheat entries of installed systems. With `SB_KEY` and `SB_CERT` set, both are signed, see [Signing](#signing).
+
+| UKI                                 | Menu title                        | Command line                                                                                                                                                             |
+| ----------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `garuda-<kernel>-<version>.efi`     | `<PRETTY_NAME> (generic)`         | `rw rootflags=subvol=@`                                                                                                                                                  |
+| `garuda-<kernel>-<version>-eac.efi` | `<PRETTY_NAME> (Easy Anti-Cheat)` | the same, plus `lockdown=integrity module.sig_enforce=1 sysctl.kernel.kexec_load_disabled=1 intel_iommu=on iommu.passthrough=0 lsm=landlock,lockdown,yama,integrity,bpf` |
+
+Both command lines are embedded as a `.cmdline` section and covered by the signature, so under Secure Boot _systemd-stub_ ignores options from the boot entry or the menu editor. They carry no `root=`: every install has its own root UUID. Instead, _systemd-gpt-auto-generator_ in the initramfs finds the root partition by its x86-64 root partition type on the disk of the ESP that _systemd-boot_ started from, and opens a LUKS root partition as well. Calamares gives the root partition that type with _Erase disk_, see [Installer](installer.md#installation-process). `rootflags=subvol=@` selects the root subvolume of the Garuda layout. The Easy Anti-Cheat UKI runs the kernel in lockdown integrity mode with signed modules only, so locally built DKMS modules do not load under it and hibernation is off. `intel_iommu=on` is ignored on AMD, where the IOMMU is on by default.
+
+The older pair of the same kernel is removed, and `garuda-<kernel>.efi` and `garuda-<kernel>-eac.efi` link to the newest.
+
+## Signing
+
+With `SB_KEY` and `SB_CERT` set, `build.sh` signs the boot chain of the ISO and the generic UKI. Without them, both are built unsigned:
+
+| Variable     | Content                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `SB_KEY`     | PEM private key file, or a `pkcs11:` URI of a YubiKey or HSM, used through the OpenSSL `pkcs11` provider                                 |
+| `SB_CERT`    | PEM certificate of the key, the signing certificate                                                                                      |
+| `SB_CA_CERT` | PEM certificate of the CA that issued `SB_CERT`, optional. Machines enroll this one, so the signing key rotates without a new enrollment |
+
+```console
+# SB_KEY=/path/to/signer.key SB_CERT=/path/to/signer.crt SB_CA_CERT=/path/to/ca.crt ./build.sh iso mokka
+```
+
+A test CA and signing key for local builds. The CA key stays offline in production, only the signing key is used by the builds:
+
+```console
+$ openssl req -new -x509 -newkey rsa:4096 -nodes -days 7300 -subj "/CN=Garuda test CA/" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" -keyout ca.key -out ca.crt
+$ openssl req -new -newkey rsa:4096 -nodes -subj "/CN=Garuda test signer/" -keyout signer.key -out signer.csr
+$ printf 'basicConstraints=CA:FALSE\nkeyUsage=digitalSignature\nextendedKeyUsage=codeSigning\n' >signer.ext
+$ openssl x509 -req -in signer.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 3650 -extfile signer.ext -out signer.crt
+```
+
+A single self-signed certificate works as well, set as `SB_CERT` without `SB_CA_CERT`. It is then enrolled itself, and a new key means a new enrollment on every machine. `build.sh` stops before the build when `SB_CERT` is not issued by `SB_CA_CERT` or `SB_KEY` does not belong to `SB_CERT`.
+
+The builder container mounts the files at their own paths. A `pkcs11:` key needs the token, so it only works for builds on the host. The `build` command of the development shell passes the variables through _sudo_. For the boot chain and the ESP layout, see [Architecture#Secure Boot](architecture.md#secure-boot).
 
 ## Incremental builds
 

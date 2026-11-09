@@ -80,6 +80,15 @@ layer_output() {
   esac
 }
 
+# The one kernel of a tree: prints its version and pkgbase
+tree_kernel() {
+  local tree="$1" kdirs
+  kdirs=("$tree"/usr/lib/modules/*/)
+  [[ ${#kdirs[@]} -eq 1 && -d "${kdirs[0]}" ]] || die "expected exactly one kernel in $tree"
+  basename "${kdirs[0]}"
+  cat "${kdirs[0]}pkgbase"
+}
+
 # The cache tree is the only database of live-initrd, its output is a cpio archive
 layer_db() {
   local layer="$1" kind="$2"
@@ -241,6 +250,10 @@ prepare_layers() {
   for layer in "${layers[@]}"; do
     below="${LAYER_BELOW[$layer]}"
     parts=("$global" "${below:+${NEW_STAMP[$below]}}" "$(layer_files_hash "$layer" "$edition")")
+    # The Secure Boot cert in the root layer, see lib/secureboot.sh
+    if [[ "$layer" == root && -n "$SB_CERT" ]]; then
+      parts+=("$(sb_stamp)")
+    fi
     stamp="$(printf '%s\n' "${parts[@]}" | sha256sum | cut -d' ' -f1)"
     NEW_STAMP[$layer]="$stamp"
 
