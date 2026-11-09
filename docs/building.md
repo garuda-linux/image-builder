@@ -66,12 +66,15 @@ Supported kernels have a `mkosi.images/root/mkosi.conf.d/kernel-<kernel>.conf` f
 
 Options go before the output name:
 
-| Option              | Effect                                                        |
-| ------------------- | ------------------------------------------------------------- |
-| `--fresh`           | rebuilds every layer and installs all packages again          |
-| `--refresh-keys`    | downloads the chaotic keyring and mirrorlist again            |
-| `--container`       | runs the build in the builder container                       |
-| `--rebuild-builder` | builds the builder container image again (with `--container`) |
+| Option                    | Effect                                                                   |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `--fresh`                 | rebuilds every layer and installs all packages again                     |
+| `--rebuild-layer <layer>` | rebuilds the layer and every layer above it, can be given more than once |
+| `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                       |
+| `--container`             | runs the build in the builder container                                  |
+| `--rebuild-builder`       | builds the builder container image again (with `--container`)            |
+
+The layers are `base`, `root`, `desktop`, `live`, `mhwd` and `live-initrd`, see [Incremental builds](#incremental-builds).
 
 ### Results
 
@@ -111,7 +114,7 @@ Each layer output therefore gets a stamp in `mkosi.output/.stamps/`: a hash of t
 
 ```mermaid
 flowchart TD
-  start([next layer]) --> fresh{--fresh?}
+  start([next layer]) --> fresh{--fresh or --rebuild-layer?}
   fresh -- yes --> rebuild[remove the output, mkosi rebuilds it]
   fresh -- no --> exists{output exists?}
   exists -- no --> rebuild
@@ -119,7 +122,9 @@ flowchart TD
   below -- yes --> rebuild
   below -- no --> stamp{stamp unchanged?}
   stamp -- no --> rebuild
-  stamp -- yes --> reuse[reuse the output]
+  stamp -- yes --> updates{package updates in the repositories?}
+  updates -- yes --> rebuild
+  updates -- no --> reuse[reuse the output]
   rebuild --> erofs_new[ISO: make its erofs image again]
   reuse --> key{ISO: erofs key unchanged?}
   key -- yes --> erofs_reuse[reuse the erofs image]
@@ -135,8 +140,35 @@ The erofs images live in `mkosi.output/.erofs/`. Their key is the layer stamp pl
 
 Downloaded packages stay in `mkosi.cache/packages/`.
 
+### Package updates
+
+Before it decides on the layers, `build.sh` syncs the repository databases in the tools tree and checks each layer for packages with a newer version (`pacman -Qu` on the pacman database of the layer output). A layer with updates is rebuilt with every layer above it. The build log names the layer and the first packages:
+
+```
+==> Rebuilding the live layer: 1 packages with updates (calamares-garuda)
+```
+
+```mermaid
+flowchart LR
+  conf[mkosi.sandbox/etc/pacman.conf] --> sync[pacman -Sy in the tools tree]
+  sync --> meta[(mkosi.cache/key~main.metadata.cache)]
+  meta --> mk[mkosi build installs from it]
+  meta --> qu[pacman -Qu]
+  out[(layer output: var/lib/pacman/local)] --> qu
+  cache[(mkosi cache tree of base, live-initrd)] --> qu
+  qu -->|updates| rb[rebuild the layer and the layers above]
+  qu -->|updates in the cache tree| drop[remove the mkosi cache of the layer]
+  qu -->|none| reuse[reuse the layer]
+```
+
+- The sync goes into mkosi's own metadata cache (`mkosi.cache/<key>~main.metadata.cache`). mkosi 27 syncs the databases only when one of its incremental caches is out of date, so it would otherwise install the old versions again.
+- `base` and `live-initrd` have an incremental cache of mkosi (`mkosi.cache/<key>~<layer>.cache`), which mkosi reuses as long as the configuration is the same. `build.sh` removes it when it has package updates or the layer is named with `--rebuild-layer`.
+- `live-initrd` is a cpio archive without a pacman database, so the check uses its mkosi cache tree. A layer without a database to check is rebuilt.
+- The sync needs the network. A build that cannot sync stops.
+- The first build has no mkosi keyring yet, so it skips the sync and builds every layer.
+
 > [!NOTE]
-> A reused layer keeps the package versions it was built with. Build with `--fresh` to rebuild every layer and get package updates.
+> The check sees only versions. A package rebuilt under the same version, and the driver packages that the `mhwd` layer downloads into its local repository instead of installing them, need `--rebuild-layer`, for example `./build.sh --rebuild-layer mhwd iso mokka`.
 
 ## Compression
 

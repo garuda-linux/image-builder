@@ -142,7 +142,7 @@ Git ignores `mkosi.local.conf`. Options on the `build.sh` command line win over 
    $ build iso mokka
    ```
 
-   `build.sh` rebuilds only the layers the change affects and reuses the others, see [Building#Incremental builds](building.md#incremental-builds). To rebuild every layer and pick up package updates, add `--fresh`:
+   `build.sh` rebuilds only the layers the change or a package update affects and reuses the others, see [Building#Incremental builds](building.md#incremental-builds). To rebuild one layer and the layers above it, add `--rebuild-layer <layer>`. To rebuild every layer, add `--fresh`:
 
    ```console
    $ build --fresh iso mokka

@@ -6,11 +6,15 @@ The problems below come from mkosi defaults, the UEFI-only boot of the ISO, the 
 
 ### Package updates do not arrive
 
-`build.sh` reuses every layer whose inputs did not change, with the packages it was built with. Build with `--fresh` to rebuild every layer and install all packages again, see [Building#Incremental builds](building.md#incremental-builds).
+`build.sh` rebuilds every layer with a newer package version in the repositories, see [Building#Package updates](building.md#package-updates). Check the build log for `Rebuilding the <layer> layer`. If the layer was reused, the mirror may not have the update yet. The package versions in the result are in the manifest:
+
+```console
+$ jq -r '.packages[] | select(.name == "calamares-garuda") | .version' mkosi.output/garuda-mokka.iso.manifest
+```
 
 ### A reused layer looks stale
 
-The stamps cover the repository files, but not everything outside them, for example a package that changed on the mirror under the same version. Build with `--fresh`, or delete the output of the layer in `mkosi.output/` to rebuild it and every layer above it.
+The check sees versions only, not a package rebuilt under the same version, and not the driver packages in the local repository of the `mhwd` layer. Rebuild the layer and the layers above it with `--rebuild-layer <layer>`, or every layer with `--fresh`.
 
 ### The build fails on NixOS with missing tools or keyring errors
 

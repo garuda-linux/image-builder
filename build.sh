@@ -11,7 +11,8 @@
 # Options, before the output name:
 #   --refresh-keys     download the chaotic keyring and mirrorlist again
 #   --fresh            rebuild every layer and reinstall all packages
-#                      (needed to pick up package updates)
+#   --rebuild-layer L  rebuild layer L and the layers above it, repeatable
+#                      (layers with package updates are rebuilt anyway)
 #   --container        build inside the ci/Containerfile builder image
 #                      (privileged podman, for hosts without Arch tools such as NixOS)
 #   --rebuild-builder  build the builder image again (with --container)
@@ -125,9 +126,20 @@ main() {
         FORCE=(--force --force)
         passthrough+=("$1")
         ;;
+      --rebuild-layer)
+        [[ -n "${2:-}" && -n "${LAYER_BELOW[$2]+set}" ]] || die "--rebuild-layer needs one of: ${!LAYER_BELOW[*]}"
+        FORCED[$2]=1
+        passthrough+=("$1" "$2")
+        shift
+        ;;
       --container) container=true ;;
       --rebuild-builder) rebuild=true ;;
       --post) post=true ;; # internal, see run_post
+      --packages)          # internal, see check_packages
+        shift
+        packages_main "$@"
+        return
+        ;;
       --help) usage ;;
       *) die "unknown option $1" ;;
     esac
@@ -154,16 +166,18 @@ main() {
 
   case "$output" in
     distrobox)
+      MKOSI_ARGS=(--profile distrobox "$@")
       prepare_layers "" base -- "$@"
       remove_output "$OUTPUT_DIR/garuda-distrobox"
-      run_mkosi --profile distrobox "$@"
+      run_mkosi
       write_stamps
       run_post distrobox distrobox
       ;;
     lima)
+      MKOSI_ARGS=(--profile lima "$@")
       prepare_layers "" base root -- "$@"
       remove_output "$OUTPUT_DIR/garuda-lima" "$OUTPUT_DIR/garuda-lima.raw"
-      run_mkosi --profile lima "$@"
+      run_mkosi
       write_stamps
       run_post lima lima
       ;;
@@ -177,6 +191,7 @@ main() {
 
       local kernel_args=()
       mapfile -t kernel_args < <(edition_args "$edition" "$@")
+      MKOSI_ARGS=(--profile "$output" --profile "$edition" "${kernel_args[@]}" "$@")
 
       if [[ "$output" == iso ]]; then
         prepare_layers "$edition" base root desktop live mhwd live-initrd -- "${kernel_args[@]}" "$@"
@@ -185,7 +200,7 @@ main() {
         prepare_layers "$edition" base root desktop -- "${kernel_args[@]}" "$@"
         remove_output "$OUTPUT_DIR/garuda-vm" "$OUTPUT_DIR/garuda-vm.raw"
       fi
-      run_mkosi --profile "$output" --profile "$edition" "${kernel_args[@]}" "$@"
+      run_mkosi
       write_stamps
       run_post "$output" "$output" "$edition"
       ;;
