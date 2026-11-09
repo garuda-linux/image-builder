@@ -18,15 +18,36 @@ flowchart LR
   subgraph outputs [Outputs]
     distrobox[distrobox OCI image]
     lima[Lima disk]
+    vm[VM image]
     uki[generic UKI]
     iso[live ISO]
   end
 
   base ==> distrobox
   root ==> lima
+  desktop ==> vm
   root ==> uki
   root & desktop & mhwd & live ==> iso
   initrd ==> iso
+```
+
+How `build.sh` turns a command into these steps, for example `./build.sh iso mokka`:
+
+```mermaid
+sequenceDiagram
+  participant B as build.sh (host or container)
+  participant T as tools tree (mkosi sandbox)
+  participant M as mkosi build
+  B->>B: options, Secure Boot check, chaotic keyring
+  B->>B: cert tree for the root layer
+  B->>T: build.sh --packages: sync the repository databases, pacman -Qu per layer
+  T-->>B: packages with updates per layer
+  B->>B: decide per layer: reuse or rebuild (stamps, updates, --rebuild-layer)
+  B->>M: GARUDA_BUILD_* =1 for the rebuilt layers only
+  M-->>B: new layer trees in mkosi.output/
+  B->>B: write the stamps
+  B->>T: build.sh --post: preset check, then the output step
+  T-->>B: ISO, disk image or UKI, SBOM
 ```
 
 The thick arrows show which layers each output is built from.
@@ -104,6 +125,40 @@ At boot:
 3. It sets up the writable layer, in RAM or on the persistence partition, copies the layer partitions to RAM when `copytoram` is set, reads every layer once through dm-verity when `checksum` is set, opens each layer as a dm-verity device with its root hash and mounts it read-only under `/run/garuda/layers/<layer>`.
 4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `mhwd`, `desktop`, `root`, with the writable layer on top.
 5. `run-garuda-install.mount` mounts the `desktop` and `root` layers alone at `/run/garuda/install`. The installer copies the new system from there, so the live session and the driver repository do not end up on the installed system.
+
+How the layers become the root file system of the live session:
+
+```mermaid
+flowchart BT
+  subgraph medium [ISO partitions]
+    pr[garuda-root] --- vr[garuda-root-verity]
+    pd[garuda-desktop] --- vd[garuda-desktop-verity]
+    pm[garuda-mhwd] --- vm[garuda-mhwd-verity]
+    pl[garuda-live] --- vl[garuda-live-verity]
+  end
+
+  subgraph verity ["dm-verity devices, root hashes from garuda.verity="]
+    dr[root] & dd[desktop] & dm[mhwd] & dl[live]
+  end
+
+  pr --> dr
+  pd --> dd
+  pm --> dm
+  pl --> dl
+
+  subgraph sysroot ["/sysroot, overlayfs"]
+    direction BT
+    lr[root, lowest] --> ld[desktop] --> lm[mhwd] --> ll[live] --> rw[writable layer: RAM or GARUDA_PERSIST]
+  end
+
+  dr --> lr
+  dd --> ld
+  dm --> lm
+  dl --> ll
+  dr & dd -. read-only .-> inst["/run/garuda/install, for the installer"]
+```
+
+The `copytoram` option copies the partitions to RAM first, then the initrd opens the same devices from the RAM copy.
 
 ### Boot options
 
