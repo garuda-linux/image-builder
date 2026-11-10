@@ -261,6 +261,21 @@ The images ship no pacman keyring. A keyring made at build time would give every
 
 The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot` of the `mhwd` layer checks the signatures of the driver packages when it downloads them, with a temporary keyring that it removes afterwards. On the ISO the repository is part of the dm-verity protected `mhwd` layer, so `/opt/ght/pacman-ght.conf` has `SigLevel = Never` for it, and `ght-live.service` installs the drivers before `garuda-live-keyring.service` makes the system keyring. A keyring kept in the layer would hold a new private master key on every build, and the ISO would differ between builds.
 
+## DNS
+
+Every image resolves names with _systemd-resolved_. The `base` layer sets it up:
+
+| File                                          | Purpose                                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `mkosi.postinst.chroot`                       | links `/etc/resolv.conf` to `../run/systemd/resolve/stub-resolv.conf`, the package ships a plain file |
+| `/etc/systemd/resolved.conf.d/50-garuda.conf` | Quad9 as the only fallback server, `DNSOverTLS=opportunistic`, `MulticastDNS=no`                      |
+
+NetworkManager sees the stub link and hands the DNS servers of each connection to _systemd-resolved_, so the servers of the network stay primary. Quad9 is only asked when the network gives none. DNS over TLS is used where the server supports it, plain DNS otherwise. Arch's `90-systemd.preset` enables `systemd-resolved.service`, and `80-garuda-desktop.preset` leaves it enabled.
+
+mDNS stays with _avahi_ and `nss-mdns` (`mdns_minimal` in `/etc/nsswitch.conf`). Two mDNS stacks on port 5353 make mDNS unreliable, so _systemd-resolved_ does not run its own.
+
+The Calamares _networkcfg_ module copies the link from the live session to the installed system.
+
 ## systemd-boot
 
 New installs and the Lima image boot _systemd-boot_ with one unified kernel image (UKI) per kernel, and carry no GRUB. The live ISO boots _systemd-boot_ with a plain kernel and initrd. The parts come from two packages, `garuda-systemd-boot` and `snapper-support-sdboot`, which only new installs get. Every part does nothing as long as `bootctl is-installed` fails, so a GRUB system that installs them keeps booting as before. Existing GRUB installs keep their GRUB packages and `snapper-support`.

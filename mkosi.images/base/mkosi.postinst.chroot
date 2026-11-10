@@ -23,3 +23,8 @@ for repo in garuda multilib chaotic-aur; do
     exit 1
   }
 done
+
+# /etc/resolv.conf points to the stub of systemd-resolved, so NetworkManager
+# passes its DNS servers to resolved (rc-manager=symlink). The package ships a
+# plain file, and the tmpfiles line of systemd (L!) never replaces one.
+ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
