@@ -20,6 +20,9 @@ FORCE=()
 # Layers named with --rebuild-layer
 declare -A FORCED=()
 
+# --explain: decide on the layers as a build would, then stop without changes
+EXPLAIN=false
+
 # mkosi arguments of the output, set by main: profiles, kernel and extra args
 MKOSI_ARGS=()
 
@@ -45,7 +48,12 @@ run_mkosi() {
   done
 
   log "mkosi ${MKOSI_ARGS[*]} (version $VERSION)"
-  mkosi --image-version="$VERSION" "${env_args[@]}" "${MKOSI_ARGS[@]}" "${FORCE[@]}" build
+  # Through a pipe, so mkosi sees no terminal and prints no colors
+  timed "mkosi build" mkosi_build "${env_args[@]}"
+}
+
+mkosi_build() {
+  mkosi --image-version="$VERSION" "$@" "${MKOSI_ARGS[@]}" "${FORCE[@]}" build 2>&1 | mkosi_image_timings
 }
 
 # Contents, and the path, mode, type and link target of every entry: a chmod
@@ -102,6 +110,27 @@ layer_db() {
   esac
 }
 
+# The package files in mkosi.packages/, one per line, without signatures
+local_package_files() {
+  local file
+
+  for file in "$LOCAL_PACKAGES"/*.pkg.tar*; do
+    [[ -f "$file" && "$file" != *.sig ]] && echo "$file"
+  done
+  return 0
+}
+
+# Prints "<name> <pkgver>-<pkgrel>" of a package file. The file name is
+# <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>, and the name may hold dashes.
+local_package_id() {
+  local base="${1##*/}" name
+
+  base="${base%.pkg.tar*}"
+  name="${base%-*-*-*}"
+  base="${base#"$name"-}"
+  echo "$name ${base%-*}"
+}
+
 # Hash of the packages in mkosi.packages/ that the layer has installed, empty
 # for none. The package check cannot see them, so the hash goes into the layer
 # stamp. A layer without a database is rebuilt anyway.
@@ -112,12 +141,8 @@ local_packages_hash() {
   [[ -d "$db/local" ]] || db="$(layer_db "$layer" cache)"
   [[ -d "$db/local" ]] || return 0
 
-  for file in "$LOCAL_PACKAGES"/*.pkg.tar*; do
-    [[ -f "$file" && "$file" != *.sig ]] || continue
-    # <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>, the name may hold dashes
-    name="${file##*/}"
-    name="${name%.pkg.tar*}"
-    name="${name%-*-*-*}"
+  while read -r file; do
+    read -r name _ < <(local_package_id "$file")
     for entry in "$db/local/$name"-*; do
       rest="${entry##*/}"
       rest="${rest#"$name"-}"
@@ -126,7 +151,7 @@ local_packages_hash() {
         break
       fi
     done
-  done
+  done < <(local_package_files)
 
   ((${#found[@]} > 0)) || return 0
   sha256sum "${found[@]}" | sha256sum | cut -d' ' -f1
@@ -171,6 +196,18 @@ packages_main() {
   pacman -Sy --noconfirm --config "$conf" --dbpath "$main.metadata.cache/lib/pacman" \
     --gpgdir "$main.keyring.cache" --logfile /dev/null >&2 ||
     die "could not sync the repository databases, needed to check the reused layers for package updates"
+
+  # A local package the repositories have caught up with replaces the
+  # repository version and gets every build to rebuild its layer
+  local file name pkgver repo
+  while read -r file; do
+    read -r name pkgver < <(local_package_id "$file")
+    repo="$(pacman -Si --config "$conf" --dbpath "$main.metadata.cache/lib/pacman" "$name" 2>/dev/null |
+      sed -n 's/^Version *: //p' | head -n1)"
+    if [[ -n "$repo" ]] && (($(vercmp "$repo" "$pkgver") >= 0)); then
+      log "WARNING: ${file##*/} is not newer than $name $repo in the repositories, remove it from $LOCAL_PACKAGES/" >&2
+    fi
+  done < <(local_package_files)
 
   for layer in "$@"; do
     for kind in output cache; do
@@ -285,15 +322,19 @@ prepare_layers() {
 
   mkdir -p "$STAMPS"
   # --fresh rebuilds everything, and mkosi -ff syncs the databases itself
-  ((${#FORCE[@]} > 0)) || check_packages "${layers[@]}"
+  ((${#FORCE[@]} > 0)) || timed "package check" check_packages "${layers[@]}"
 
   # A forgotten local package would replace newer repository versions
-  local local_files=("$LOCAL_PACKAGES"/*.pkg.tar*)
-  if [[ -f "${local_files[0]}" ]]; then
-    log "Local packages in $LOCAL_PACKAGES/ replace the repository versions: $(printf '%s ' "${local_files[@]##*/}" | sed 's/[^ ]*\.sig //g')"
+  local local_files=()
+  mapfile -t local_files < <(local_package_files)
+  if ((${#local_files[@]} > 0)); then
+    log "Local packages in $LOCAL_PACKAGES/ replace the repository versions: ${local_files[*]##*/}"
   fi
 
-  local reason parts
+  local reason parts reuse=Reusing rebuild=Rebuilding
+  if [[ "$EXPLAIN" == true ]]; then
+    reuse="Would reuse" rebuild="Would rebuild"
+  fi
   for layer in "${layers[@]}"; do
     below="${LAYER_BELOW[$layer]}"
     parts=("$global" "${below:+${NEW_STAMP[$below]}}" "$(layer_files_hash "$layer" "$edition")")
@@ -324,15 +365,23 @@ prepare_layers() {
     fi
 
     if [[ -z "$reason" ]]; then
-      log "Reusing the $layer layer"
-    else
-      log "Rebuilding the $layer layer: $reason"
-      REBUILT[$layer]=1
+      log "$reuse the $layer layer"
+      continue
+    fi
+
+    log "$rebuild the $layer layer: $reason"
+    REBUILT[$layer]=1
+    if [[ "$EXPLAIN" != true ]]; then
       rm -f "$STAMPS/$layer"
       remove_output "$OUTPUT_DIR/$layer" "$(layer_output "$layer")"
       ((${#FORCE[@]} > 0)) || drop_mkosi_cache "$layer"
     fi
   done
+
+  if [[ "$EXPLAIN" == true ]]; then
+    log "--explain: nothing built or removed"
+    exit 0
+  fi
 }
 
 write_stamps() {

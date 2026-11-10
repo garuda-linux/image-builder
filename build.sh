@@ -7,6 +7,9 @@
 #   ./build.sh iso <edition> [mkosi args]
 #   ./build.sh vm <edition> [mkosi args]
 #   ./build.sh uki [mkosi args]
+#   ./build.sh clean old|layers|caches|all [--yes]
+#     removes old images, then the layers, then the caches, then the downloads
+#     (each level includes the ones before it, shows sizes and asks first)
 #
 # Extra args go to mkosi as is, for example -E KERNEL=linux-lts.
 # Options, before the output name:
@@ -14,6 +17,8 @@
 #   --fresh            rebuild every layer and reinstall all packages
 #   --rebuild-layer L  rebuild layer L and the layers above it, repeatable
 #                      (layers with package updates are rebuilt anyway)
+#   --explain          print which layers a build would reuse or rebuild and why,
+#                      then stop (syncs the repository databases, builds nothing)
 #   --container        build inside the ci/Containerfile builder image
 #                      (privileged podman, for hosts without Arch tools such as NixOS)
 #   --rebuild-builder  build the builder image again (with --container)
@@ -62,6 +67,8 @@ usage() {
   exit "${1:-0}"
 }
 
+# shellcheck source=lib/timings.sh
+source lib/timings.sh
 # shellcheck source=lib/chaotic.sh
 source lib/chaotic.sh
 # shellcheck source=lib/secureboot.sh
@@ -80,6 +87,8 @@ source lib/iso.sh
 source lib/uki.sh
 # shellcheck source=lib/container.sh
 source lib/container.sh
+# shellcheck source=lib/clean.sh
+source lib/clean.sh
 
 # Post-build steps run in the mkosi tools tree, so they use the same tool
 # versions as mkosi itself.
@@ -88,7 +97,7 @@ run_post() {
   shift
 
   log "Post-build steps in the mkosi tools tree"
-  mkosi --profile "$profile" sandbox -- env VERSION="$VERSION" ISO_COMPRESSION="$ISO_COMPRESSION" \
+  timed "post-build steps" mkosi --profile "$profile" sandbox -- env VERSION="$VERSION" ISO_COMPRESSION="$ISO_COMPRESSION" \
     SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" SB_KEY="$SB_KEY" SB_CERT="$SB_CERT" SB_CA_CERT="$SB_CA_CERT" \
     "$PWD/build.sh" --post "$@"
 }
@@ -106,11 +115,11 @@ post_main() {
   case "$1" in
     distrobox)
       check_presets "$OUTPUT_DIR/base"
-      write_sbom "$OUTPUT_DIR/garuda-distrobox.manifest" garuda-distrobox
+      timed "post: SBOM" write_sbom "$OUTPUT_DIR/garuda-distrobox.manifest" garuda-distrobox
       ;;
     lima)
-      post_lima
-      write_sbom "$OUTPUT_DIR/garuda-lima.manifest" garuda-lima
+      timed "post: Lima disk" post_lima
+      timed "post: SBOM" write_sbom "$OUTPUT_DIR/garuda-lima.manifest" garuda-lima
       ;;
     iso)
       # live contains every layer below it, so this covers all presets
@@ -118,11 +127,11 @@ post_main() {
       post_iso "$2"
       ;;
     vm)
-      post_vm "$2"
-      write_sbom "$OUTPUT_DIR/garuda-vm.manifest" "garuda-vm-$2"
+      timed "post: VM disk" post_vm "$2"
+      timed "post: SBOM" write_sbom "$OUTPUT_DIR/garuda-vm.manifest" "garuda-vm-$2"
       ;;
     uki)
-      post_uki
+      timed "post: generic UKIs" post_uki
       ;;
   esac
 }
@@ -147,6 +156,10 @@ main() {
         passthrough+=("$1" "$2")
         shift
         ;;
+      --explain)
+        EXPLAIN=true
+        passthrough+=("$1")
+        ;;
       --container) container=true ;;
       --rebuild-builder) rebuild=true ;;
       --post) post=true ;; # internal, see run_post
@@ -163,6 +176,14 @@ main() {
 
   [[ $# -ge 1 ]] || usage 1
   [[ $EUID -eq 0 ]] || die "run as root"
+
+  # Before the container: removing files needs root, not the builder image
+  if [[ "$1" == clean ]]; then
+    shift
+    clean_main "$@"
+    return
+  fi
+
   check_secureboot
 
   if [[ "$post" == true ]]; then
@@ -177,7 +198,8 @@ main() {
   local output="$1"
   shift
 
-  fetch_chaotic "$refresh"
+  timings_start
+  timed "keyring and mirrorlist" fetch_chaotic "$refresh"
   write_secureboot_tree
   prepare_qemu_dir
 

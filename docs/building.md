@@ -89,8 +89,50 @@ Options go before the output name:
 | `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                       |
 | `--container`             | runs the build in the builder container                                  |
 | `--rebuild-builder`       | builds the builder container image again (with `--container`)            |
+| `--explain`               | prints which layers a build would reuse or rebuild and why, then stops   |
 
 The layers are `base`, `root`, `desktop`, `live`, `mhwd` and `live-initrd`, see [Incremental builds](#incremental-builds).
+
+`--explain` makes the same decision as a build: stamps, local packages and the package check, which syncs the repository databases. It builds and removes nothing:
+
+```console
+$ build --explain iso mokka
+==> Would reuse the base layer
+==> Would rebuild the root layer: 3 packages with updates (linux-garuda glibc mesa)
+==> Would rebuild the desktop layer: the root layer is rebuilt
+```
+
+### Timings
+
+Every build ends with a table of its steps, also after a failure: the keyring fetch, the package check, each mkosi image (from the `‣ [<image>]` prefix of mkosi's log lines), the post-build steps and, for an ISO, each erofs image with its compression. mkosi's output goes through a pipe for this, so it has no colors.
+
+### Cleaning up
+
+`build.sh clean` removes build files by level. Each level includes the ones before it:
+
+| Level    | Removes                                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------------------- |
+| `old`    | images of older versions, which no link such as `garuda-mokka.iso` points to, and the `repro-check` copies |
+| `layers` | the layer outputs, erofs images and stamps. The next build installs the layers again                       |
+| `caches` | mkosi's incremental caches, keyring and repository metadata                                                |
+| `all`    | the downloaded packages, _shim_ and the tools tree                                                         |
+
+It lists the paths with their sizes and asks before it removes them, `--yes` skips the question. The current images, `mkosi.cache/qemu` (the test VMs) and `mkosi.packages/` stay at every level.
+
+```console
+$ build clean layers
+```
+
+### Shell completion
+
+`completions/` has completion for `build` and `./build.sh`: outputs, editions, options, layers and clean levels. `nix develop` loads the bash file. direnv passes only environment variables to the shell, not completions, so with direnv link the file once:
+
+```console
+$ ln -s "$PWD/completions/build.fish" ~/.config/fish/completions/build.fish
+$ ln -s "$PWD/completions/build.bash" ~/.local/share/bash-completion/completions/build
+```
+
+The first line is for fish, the second for bash with _bash-completion_.
 
 ### Results
 

@@ -242,7 +242,7 @@ build_live_boot() {
 
 # Cached per layer stamp and erofs options, so root.erofs is shared by all editions
 make_layer_images() {
-  local layer_dir="$1" cache="$OUTPUT_DIR/.erofs" layer key lower
+  local layer_dir="$1" cache="$OUTPUT_DIR/.erofs" layer key lower start
 
   log "Making the layer images"
   mkdir -p "$layer_dir" "$cache"
@@ -255,6 +255,7 @@ make_layer_images() {
       "$(cat "$cache/$layer.key" 2>/dev/null)" == "$key" ]]; then
       log "Reusing $layer.erofs"
     else
+      start=$SECONDS
       rm -f "$cache/$layer.key" "$cache/$layer.erofs"
       if [[ "$layer" == root ]]; then
         make_erofs "$OUTPUT_DIR/root" "$cache/root.erofs" root
@@ -267,6 +268,7 @@ make_layer_images() {
       fi
       make_verity "$cache/$layer.erofs" "$cache/$layer.verity" "$cache/$layer.roothash" "$layer"
       echo "$key" >"$cache/$layer.key"
+      timing_add "post: erofs $layer (${ISO_COMPRESSION})" "$((SECONDS - start))"
     fi
 
     cp --reflink=auto "$cache/$layer.erofs" "$layer_dir/$layer.erofs"
@@ -405,9 +407,9 @@ post_iso() {
 
   # The layer images first: the boot entries carry their verity root hashes
   make_layer_images "$layer_dir"
-  build_live_boot "$live" "$kver" "$label" "$(verity_arg "$layer_dir")" "$edition"
-  write_iso "$iso" "$layer_dir" "$label"
-  finish_iso "$iso" "$edition" "$kernel"
+  timed "post: live boot" build_live_boot "$live" "$kver" "$label" "$(verity_arg "$layer_dir")" "$edition"
+  timed "post: ISO" write_iso "$iso" "$layer_dir" "$label"
+  timed "post: checksum and SBOM" finish_iso "$iso" "$edition" "$kernel"
 
   trap - EXIT
   cleanup_iso

@@ -160,6 +160,11 @@
               export LC_ALL="C.UTF-8"
               export NIX_PATH=nixpkgs=${nixpkgs}
 
+              # fish (also through direnv) links completions/build.fish instead, see docs/building.md
+              if [ -n "''${BASH_VERSION:-}" ]; then
+                source "$(git rev-parse --show-toplevel)/completions/build.bash" 2>/dev/null || true
+              fi
+
               if [ ! -f /etc/containers/policy.json ] && [ ! -f ~/.config/containers/policy.json ]; then
                 echo "No podman policy.json found (skopeo and podman need one). To install the default:"
                 echo "  install -Dm644 ${pkgs.skopeo.src}/default-policy.json ~/.config/containers/policy.json"
