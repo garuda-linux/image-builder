@@ -263,12 +263,14 @@ The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot
 
 ## DNS
 
-Every image resolves names with _systemd-resolved_. The `base` layer sets it up:
+Every image resolves names with _systemd-resolved_. The `mkosi.extra/` of the `base` layer sets it up:
 
-| File                                          | Purpose                                                                                               |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `mkosi.postinst.chroot`                       | links `/etc/resolv.conf` to `../run/systemd/resolve/stub-resolv.conf`, the package ships a plain file |
-| `/etc/systemd/resolved.conf.d/50-garuda.conf` | Quad9 as the only fallback server, `DNSOverTLS=opportunistic`, `MulticastDNS=no`                      |
+| File                                          | Purpose                                                                                   |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/etc/resolv.conf`                            | link to `../run/systemd/resolve/stub-resolv.conf`, replaces the plain file of the package |
+| `/etc/systemd/resolved.conf.d/50-garuda.conf` | Quad9 as the only fallback server, `DNSOverTLS=opportunistic`, `MulticastDNS=no`          |
+
+The link cannot be made in `mkosi.postinst.chroot`: with `WithNetwork=yes`, mkosi mounts the host's `/etc/resolv.conf` over it in the chroot, and `ln` fails with "Device or resource busy". On a link, mkosi mounts on top of the link without following it, so the later layers keep it.
 
 NetworkManager sees the stub link and hands the DNS servers of each connection to _systemd-resolved_, so the servers of the network stay primary. Quad9 is only asked when the network gives none. DNS over TLS is used where the server supports it, plain DNS otherwise. Arch's `90-systemd.preset` enables `systemd-resolved.service`, and `80-garuda-desktop.preset` leaves it enabled.
 

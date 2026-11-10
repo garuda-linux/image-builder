@@ -5,7 +5,7 @@ disable pacman-init.service
 # it. This file sorts before 90-systemd.preset, so it wins. The root layer
 # keeps them: the Lima image gets its network from cloud-init over
 # systemd-networkd. systemd-resolved stays enabled: NetworkManager hands it the
-# DNS servers, see the resolv.conf link in the base postinst.
+# DNS servers, see the resolv.conf link in the mkosi.extra of base.
 disable systemd-networkd.service
 disable systemd-networkd.socket
 disable systemd-networkd-wait-online.service
