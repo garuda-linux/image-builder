@@ -144,6 +144,7 @@ iso:
   variables:
     BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
     OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
+    IB_PIPELINE_ID: $CI_PIPELINE_ID
   trigger:
     include:
       - artifact: iso-pipeline.yml
@@ -164,6 +165,7 @@ iso:
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   before_script:
     - export VERSION="$(date +%Y%m%d)"
+    - ci/shared-state.sh
 
 distrobox:
   extends: .build

@@ -66,6 +66,7 @@ iso:{edition}:
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   script:
     - export VERSION="$(date +%Y%m%d)"
+    - ci/shared-state.sh
     - ./build.sh iso "$EDITION"
     - ci/package-changes.sh "iso:$EDITION" "mkosi.output/garuda-$EDITION.iso.manifest"
     # For openqa:<edition>: the next job starts with a clean workspace, the

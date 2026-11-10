@@ -81,6 +81,14 @@ A failing `lint` or `flake-check` job stops the pipeline before any build starts
 
 All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. The ISO jobs build with `ISO_COMPRESSION=balanced` (zstd level 3, see [Building#Compression](building.md#compression)). For a release, run the pipeline from the web interface or a schedule with the variable `ISO_COMPRESSION` set to `max`: `ci/iso_pipeline.py` writes it into the ISO jobs. A new commit on a branch cancels the running jobs of the older pipeline of that branch. On the default branch, where a job may be publishing, it does not. Pipelines run for branches only, not a second time for merge requests.
 
+The build jobs of one pipeline, including the ISO jobs of its child pipeline, share their layers. Pipelines never share layers with each other.
+
+- `ci/shared-state.sh` bind-mounts `mkosi.output/` and `mkosi.cache/` from `/cache/image-builder/<pipeline>/` on the cache volume of the runner.
+- A later job reuses the layers, packages and repository metadata of an earlier one through the layer stamps and the package check, see [Building#Incremental builds](building.md#incremental-builds).
+- The `iso` trigger job passes the pipeline id to the child pipeline as `IB_PIPELINE_ID`.
+- `mkosi.tools/` is not shared: mkosi removes it as a whole when it rebuilds the tools tree. Each job builds it again from the shared packages.
+- Each job removes the directories of pipelines two days or older.
+
 The `distrobox` and `lima` jobs run [boot-check](testing.md#boot-check) before they publish, so an image that does not boot is never published. The registry keeps the last image that did.
 
 Every build job keeps the package manifest of its output for a month, together with a `.manifest.changes` file: the package changes since the last successful build of the same job on the default branch, written by `ci/package-changes.sh`. The changes are the changelog of a build.
