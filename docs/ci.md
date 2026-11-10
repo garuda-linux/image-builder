@@ -83,7 +83,7 @@ All build jobs, including the ISO jobs of the child pipeline, share the resource
 
 The build jobs of one pipeline, including the ISO jobs of its child pipeline, share their layers. Pipelines never share layers with each other.
 
-- `ci/shared-state.sh` bind-mounts `mkosi.output/` and `mkosi.cache/` from `/cache/image-builder/<pipeline>/` on the cache volume of the runner.
+- `ci/shared-state.sh` links `mkosi.output/` and `mkosi.cache/` to `/cache/image-builder/<pipeline>/` on the cache volume of the runner. mkosi resolves the links.
 - A later job reuses the layers, packages and repository metadata of an earlier one through the layer stamps and the package check, see [Building#Incremental builds](building.md#incremental-builds).
 - The `iso` trigger job passes the pipeline id to the child pipeline as `IB_PIPELINE_ID`.
 - `mkosi.tools/` is not shared: mkosi removes it as a whole when it rebuilds the tools tree. Each job builds it again from the shared packages.
