@@ -6,6 +6,8 @@
 /mkosi.tools.manifest
 # Local overrides, see mkosi.local.conf.example
 /mkosi.local.conf
+# Local packages that replace repository versions, see docs/building.md
+/mkosi.packages/
 /mkosi.local/
 # Fetched by build.sh (chaotic keyring and mirrorlist)
 /mkosi.sandbox/usr/

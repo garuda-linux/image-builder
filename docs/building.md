@@ -39,6 +39,19 @@ The build repositories are in `mkosi.sandbox/etc/pacman.conf`, in the Garuda ord
 
 `build.sh` downloads the chaotic keyring and mirrorlist into `mkosi.sandbox/` on the first run, because they are not in the Arch repositories. Git ignores them. Before it uses them, it checks their package signatures against the chaotic-aur signing key, whose fingerprint is pinned as `CHAOTIC_KEY` in `lib/chaotic.sh`. The public key itself is vendored as `ci/chaotic-key.asc`, so the build needs no keyserver.
 
+### Local packages
+
+Packages built locally, for example a `garuda-hooks` that is not in the repository yet, go into `mkosi.packages/` in the checkout as `*.pkg.tar.zst` files. Git ignores the directory. mkosi serves them as the repository `[mkosi]`, which `mkosi.sandbox/etc/pacman.conf` includes before all others, so they replace the repository versions, also older or equal ones.
+
+- They only replace packages a layer installs anyway. A new package also needs an entry in `Packages=`.
+- A layer whose package database lists one of them is rebuilt when the file changes, and so are the layers above it. `build.sh` logs the local packages on every build.
+- The package check still compares with the repositories. Once the repository has a newer version, the layer is rebuilt on every build and gets the local package again, so remove it from `mkosi.packages/` then.
+
+```console
+$ cp ~/pkgbuilds/garuda-hooks/garuda-hooks-2.16.1-2-any.pkg.tar.zst mkosi.packages/
+$ build iso mokka
+```
+
 ## Usage
 
 Give `build.sh` the output and, for an ISO or a VM image, the edition:

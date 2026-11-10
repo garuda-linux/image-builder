@@ -26,6 +26,9 @@ MKOSI_ARGS=()
 # Set by check_packages: cache path prefix per image, result per layer database
 declare -A CACHE_PREFIX=() PACKAGES=()
 
+readonly LOCAL_PACKAGES=mkosi.packages
+declare -A LOCAL_HASH=()
+
 # GARUDA_BUILD_LIVE_INITRD for live-initrd
 build_var() {
   local name="${1^^}"
@@ -99,6 +102,36 @@ layer_db() {
   esac
 }
 
+# Hash of the packages in mkosi.packages/ that the layer has installed, empty
+# for none. The package check cannot see them, so the hash goes into the layer
+# stamp. A layer without a database is rebuilt anyway.
+local_packages_hash() {
+  local layer="$1" db file name entry rest found=()
+
+  db="$(layer_db "$layer" output)"
+  [[ -d "$db/local" ]] || db="$(layer_db "$layer" cache)"
+  [[ -d "$db/local" ]] || return 0
+
+  for file in "$LOCAL_PACKAGES"/*.pkg.tar*; do
+    [[ -f "$file" && "$file" != *.sig ]] || continue
+    # <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>, the name may hold dashes
+    name="${file##*/}"
+    name="${name%.pkg.tar*}"
+    name="${name%-*-*-*}"
+    for entry in "$db/local/$name"-*; do
+      rest="${entry##*/}"
+      rest="${rest#"$name"-}"
+      if [[ "$rest" =~ ^[^-]+-[^-]+$ ]]; then
+        found+=("$file")
+        break
+      fi
+    done
+  done
+
+  ((${#found[@]} > 0)) || return 0
+  sha256sum "${found[@]}" | sha256sum | cut -d' ' -f1
+}
+
 # Runs in the tools tree (build.sh --packages). Syncs into mkosi's metadata
 # cache, because mkosi 27 syncs only when a cache is stale. Output lines:
 #   prefix <image> <mkosi cache path prefix>
@@ -130,7 +163,9 @@ packages_main() {
 
   # The sandbox tree is not mounted here, so its files are named by path
   conf="$CHECK_DIR/pacman.conf"
-  sed "s|/etc/pacman.d/|$PWD/$SANDBOX/etc/pacman.d/|" "$SANDBOX/etc/pacman.conf" >"$conf"
+  # The local [mkosi] repository exists only in mkosi's own sandbox
+  sed -e "s|/etc/pacman.d/|$PWD/$SANDBOX/etc/pacman.d/|" -e '\|^Include = /etc/mkosi-local.conf$|d' \
+    "$SANDBOX/etc/pacman.conf" >"$conf"
   mkdir -p "$main.metadata.cache/lib/pacman/local"
   log "Syncing the repository databases" >&2
   pacman -Sy --noconfirm --config "$conf" --dbpath "$main.metadata.cache/lib/pacman" \
@@ -214,7 +249,7 @@ drop_mkosi_cache() {
   local layer="$1" prefix="${CACHE_PREFIX[$1]:-}"
 
   [[ -n "$prefix" && -e "$prefix.cache" ]] || return 0
-  if [[ -n "${FORCED[$layer]:-}" || "${PACKAGES["$layer-cache"]:-unknown}" != clean ]]; then
+  if [[ -n "${FORCED[$layer]:-}" || -n "${LOCAL_HASH[$layer]:-}" || "${PACKAGES["$layer-cache"]:-unknown}" != clean ]]; then
     log "Dropping the mkosi cache of the $layer layer"
     remove_output "$prefix.cache" "$prefix.build.cache" "$prefix.manifest"
   fi
@@ -252,6 +287,12 @@ prepare_layers() {
   # --fresh rebuilds everything, and mkosi -ff syncs the databases itself
   ((${#FORCE[@]} > 0)) || check_packages "${layers[@]}"
 
+  # A forgotten local package would replace newer repository versions
+  local local_files=("$LOCAL_PACKAGES"/*.pkg.tar*)
+  if [[ -f "${local_files[0]}" ]]; then
+    log "Local packages in $LOCAL_PACKAGES/ replace the repository versions: $(printf '%s ' "${local_files[@]##*/}" | sed 's/[^ ]*\.sig //g')"
+  fi
+
   local reason parts
   for layer in "${layers[@]}"; do
     below="${LAYER_BELOW[$layer]}"
@@ -259,6 +300,11 @@ prepare_layers() {
     # The Secure Boot cert in the root layer, see lib/secureboot.sh
     if [[ "$layer" == root && -n "$SB_CERT" ]]; then
       parts+=("$(sb_stamp)")
+    fi
+    # Only when there are any, so the stamps without local packages stay as they were
+    LOCAL_HASH[$layer]="$(local_packages_hash "$layer")"
+    if [[ -n "${LOCAL_HASH[$layer]}" ]]; then
+      parts+=("local packages ${LOCAL_HASH[$layer]}")
     fi
     stamp="$(printf '%s\n' "${parts[@]}" | sha256sum | cut -d' ' -f1)"
     NEW_STAMP[$layer]="$stamp"
