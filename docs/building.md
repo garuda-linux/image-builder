@@ -221,12 +221,13 @@ flowchart LR
 
 The `ISO_COMPRESSION` environment variable sets the compression of the erofs layer images:
 
-| Value            | Compression                                           | Use                         |
-| ---------------- | ----------------------------------------------------- | --------------------------- |
-| `fast` (default) | lz4                                                   | local builds, quick to make |
-| `max`            | zstd level 22, 1 MiB clusters, deduplication, packing | the continuous integration  |
+| Value            | Compression                                           | Use                                                   |
+| ---------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| `fast` (default) | lz4                                                   | local builds, quick to make                           |
+| `balanced`       | zstd level 3                                          | the continuous integration, see [CI#Jobs](ci.md#jobs) |
+| `max`            | zstd level 22, 1 MiB clusters, deduplication, packing | releases                                              |
 
-`max` makes the smallest ISO and takes much longer to build. Both read fast in the live session. To build a release-size ISO locally:
+`max` makes the smallest ISO and takes much longer to build. All three read fast in the live session. On the 3 GB `/usr` of the `root` layer (November 2026), lz4 took 1.6 s for 1827 MiB, zstd level 3 took 3.6 s for 1510 MiB, and levels 6 and 9 saved only 2 % more at three to five times the time. To build a release-size ISO locally:
 
 ```console
 # ISO_COMPRESSION=max ./build.sh iso mokka

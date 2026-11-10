@@ -79,7 +79,7 @@ flowchart LR
 
 A failing `lint` or `flake-check` job stops the pipeline before any build starts. `flake-check` runs on the `nix` runner, because the builder image has no Nix.
 
-All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. A new commit on a branch cancels the running jobs of the older pipeline of that branch. On the default branch, where a job may be publishing, it does not. Pipelines run for branches only, not a second time for merge requests.
+All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. The ISO jobs build with `ISO_COMPRESSION=balanced` (zstd level 3, see [Building#Compression](building.md#compression)). For a release, run the pipeline from the web interface or a schedule with the variable `ISO_COMPRESSION` set to `max`: `ci/iso_pipeline.py` writes it into the ISO jobs. A new commit on a branch cancels the running jobs of the older pipeline of that branch. On the default branch, where a job may be publishing, it does not. Pipelines run for branches only, not a second time for merge requests.
 
 The `distrobox` and `lima` jobs run [boot-check](testing.md#boot-check) before they publish, so an image that does not boot is never published. The registry keeps the last image that did.
 

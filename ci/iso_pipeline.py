@@ -62,7 +62,7 @@ iso:{edition}:
     - when: on_success
   variables:
     EDITION: {edition}
-    ISO_COMPRESSION: max # smallest ISO, local builds default to fast lz4
+    ISO_COMPRESSION: {compression}
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   script:
     - export VERSION="$(date +%Y%m%d)"
@@ -200,9 +200,17 @@ def main():
         return
 
     openqa = bool(os.environ.get("OPENQA_DISTRI_URL"))
-    print(f"Editions to build: {' '.join(selected)}, openQA: {'yes' if openqa else 'no'}", file=sys.stderr)
+
+    # balanced while CI is young. A release pipeline (web run or schedule) sets
+    # ISO_COMPRESSION=max as a pipeline variable, iso:generate sees it here.
+    compression = os.environ.get("ISO_COMPRESSION") or "balanced"
+    print(
+        f"Editions to build: {' '.join(selected)}, openQA: {'yes' if openqa else 'no'}, compression: {compression}",
+        file=sys.stderr,
+    )
+
     for edition in selected:
-        sys.stdout.write(ISO_JOB.format(edition=edition))
+        sys.stdout.write(ISO_JOB.format(edition=edition, compression=compression))
         if openqa:
             sys.stdout.write(OPENQA_JOB.format(edition=edition))
 
