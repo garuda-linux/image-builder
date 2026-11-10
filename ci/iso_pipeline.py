@@ -65,10 +65,12 @@ iso:{edition}:
     ISO_COMPRESSION: {compression}
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   script:
-    - export VERSION="$(date +%Y%m%d)"
+    # A release tag is its date (YYYYMMDD), the ISO carries it as its version
+    - export VERSION="${{CI_COMMIT_TAG:-$(date +%Y%m%d)}}"
     - ci/shared-state.sh
     - ./build.sh iso "$EDITION"
     - ci/package-changes.sh "iso:$EDITION" "mkosi.output/garuda-$EDITION.iso.manifest"
+    - ci/publish-iso.sh "$EDITION"
     # For openqa:<edition>: the next job starts with a clean workspace, the
     # /cache volume of the runner outlives it
     - |
@@ -161,6 +163,10 @@ def select(editions, env):
 
     message = env.get("CI_COMMIT_MESSAGE", "")
     all_editions = env.get("CI_PIPELINE_SOURCE", "") in ("schedule", "web")
+
+    # A date tag (YYYYMMDD) is a release of every edition, see ci/publish-iso.sh.
+    if re.fullmatch(r"\d{8}", env.get("CI_COMMIT_TAG", "")):
+        all_editions = True
     if re.search(r"\[build (all|iso)\]", message):
         all_editions = True
 

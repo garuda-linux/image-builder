@@ -124,6 +124,7 @@ When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repo
 A build runs:
 
 - on a pipeline schedule and on a pipeline started from the web interface, for every output and edition,
+- on a protected git tag named after the release date (`YYYYMMDD`, for example `20261201`), for every edition ISO, see [ISO artifacts](#iso-artifacts). Other tags, such as the versions of `cz bump`, build no ISO,
 - when the commit message contains one of the following tags,
 - on a push to the default branch that changes files the output depends on. A change to an edition profile builds only that edition. A change to shared files, such as `mkosi.conf`, `build.sh` or the `base` layer, builds every output.
 
@@ -189,7 +190,16 @@ Use `--type spdxjson` for the SBOM. For the job artifacts, GitLab writes its own
 
 ### ISO artifacts
 
-The ISO jobs keep `garuda-<edition>.iso.manifest`, its `.changes` file, the SPDX SBOM and the `.sha256` checksum as artifacts, where `<edition>` is the edition name. The ISO itself, about 5 GB, exceeds the artifact size limit and stays in `mkosi.output/` on the runner host until the next build.
+The ISO jobs keep `garuda-<edition>.iso.manifest`, its `.changes` file, the SPDX SBOM and the `.sha256` checksum as artifacts, where `<edition>` is the edition name. The ISO itself, about 5 GB, exceeds the artifact size limit.
+
+`ci/publish-iso.sh` copies the ISO, its checksum, manifest and SBOM with _rsync_ to `https://iso.builds.garudalinux.org/iso/image-builder/<edition>/<kind>/`, with the versioned ISO name for all four files:
+
+| `<kind>`  | Pipeline           | Kept                   |
+| --------- | ------------------ | ---------------------- |
+| `latest`  | the default branch | until the next push    |
+| `release` | a date tag         | until the next release |
+
+Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. The ISO stays on the runner for two days as well, in the shared state of its pipeline.
 
 ## Known issues
 

@@ -6,6 +6,7 @@
 #   python (mkosi dep)     the Python CI scripts
 #   systemd (base)         systemd-nspawn for scripts/boot-check.sh
 #   skopeo, cosign         publish, sign and attest the distrobox image
+#   rsync                  publish the ISOs (ci/publish-iso.sh)
 #   shellcheck, shfmt,     the lint job
 #   ruff, yamllint
 FROM docker.io/library/archlinux:base-20261101.0.620205
@@ -28,6 +29,7 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
         curl \
         git \
         gnupg \
+        rsync \
         ruff \
         shellcheck \
         shfmt \
