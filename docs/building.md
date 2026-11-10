@@ -212,7 +212,7 @@ The builder container mounts the files at their own paths. A `pkcs11:` key needs
 
 `build.sh` reuses every layer whose inputs did not change. mkosi cannot do this itself for layers built on another layer: it turns `Incremental=` off for images with `BaseTrees=`, so only the `base` layer has a package snapshot of its own.
 
-Each layer output therefore gets a stamp in `mkosi.output/.stamps/`: a hash of the files of the layer (with only the profile of the current edition), `mkosi.conf`, `mkosi.conf.d/`, `mkosi.local.conf`, `mkosi.sandbox/`, `mkosi.shared/`, the extra mkosi arguments, the mkosi version and the stamp of the layer below. For example, after a mokka build, a dr460nized build reuses `base` and `root` and rebuilds only the edition layers. For each layer, from the bottom up, `build.sh` decides:
+Each layer output therefore gets a stamp in `mkosi.output/.stamps/`: a hash of the files of the layer (with only the profile of the current edition), `mkosi.conf`, `mkosi.conf.d/`, `mkosi.local.conf`, `mkosi.sandbox/` without the downloaded chaotic keyring and mirrorlist, `mkosi.shared/`, the extra mkosi arguments, the mkosi version and the stamp of the layer below. A `KERNEL=` argument, such as the `linux-lts` of xfce, only goes into the stamp of `root`, so xfce shares `base` with the other editions. For example, after a mokka build, a dr460nized build reuses `base` and `root` and rebuilds only the edition layers. For each layer, from the bottom up, `build.sh` decides:
 
 ```mermaid
 flowchart TD

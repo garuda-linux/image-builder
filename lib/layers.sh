@@ -313,8 +313,26 @@ prepare_layers() {
   shift
 
   [[ "$edition" == kde-lite ]] && lite=yes # kde-lite skips the 50-extra.conf files
-  global="$(printf '%s\n' "$(hash_files mkosi.conf mkosi.conf.d mkosi.local.conf mkosi.shared "$SANDBOX")" \
-    "$(mkosi --version)" "lite=$lite" "$*" | sha256sum | cut -d' ' -f1)"
+
+  # The kernel only changes root (and the layers above, through its stamp),
+  # so an edition with its own kernel, such as xfce, shares base
+  local i all=("$@") args=() kernel=()
+  for ((i = 0; i < ${#all[@]}; i++)); do
+    if [[ ("${all[i]}" == -E || "${all[i]}" == --environment) && "${all[i + 1]:-}" == KERNEL=* ]]; then
+      kernel+=("${all[i]}" "${all[i + 1]}")
+      i=$((i + 1))
+    elif [[ "${all[i]}" == *KERNEL=* ]]; then
+      kernel+=("${all[i]}")
+    else
+      args+=("${all[i]}")
+    fi
+  done
+
+  local sandbox_files=()
+  mapfile -t sandbox_files < <(find "$SANDBOX" \( -path "$SANDBOX/usr" -o -path "$SANDBOX/etc/pacman.d/chaotic-mirrorlist" \) -prune -o -type f -print)
+
+  global="$(printf '%s\n' "$(hash_files mkosi.conf mkosi.conf.d mkosi.local.conf mkosi.shared "${sandbox_files[@]}")" \
+    "$(mkosi --version)" "lite=$lite" "${args[*]}" | sha256sum | cut -d' ' -f1)"
 
   for layer in "${!FORCED[@]}"; do
     [[ " ${layers[*]} " == *" $layer "* ]] || die "--rebuild-layer $layer: this output has the layers ${layers[*]}"
@@ -335,13 +353,20 @@ prepare_layers() {
   if [[ "$EXPLAIN" == true ]]; then
     reuse="Would reuse" rebuild="Would rebuild"
   fi
+
   for layer in "${layers[@]}"; do
     below="${LAYER_BELOW[$layer]}"
     parts=("$global" "${below:+${NEW_STAMP[$below]}}" "$(layer_files_hash "$layer" "$edition")")
+
     # The Secure Boot cert in the root layer, see lib/secureboot.sh
     if [[ "$layer" == root && -n "$SB_CERT" ]]; then
       parts+=("$(sb_stamp)")
     fi
+
+    if [[ "$layer" == root && ${#kernel[@]} -gt 0 ]]; then
+      parts+=("kernel ${kernel[*]}")
+    fi
+
     # Only when there are any, so the stamps without local packages stay as they were
     LOCAL_HASH[$layer]="$(local_packages_hash "$layer")"
     if [[ -n "${LOCAL_HASH[$layer]}" ]]; then
@@ -371,6 +396,7 @@ prepare_layers() {
 
     log "$rebuild the $layer layer: $reason"
     REBUILT[$layer]=1
+
     if [[ "$EXPLAIN" != true ]]; then
       rm -f "$STAMPS/$layer"
       remove_output "$OUTPUT_DIR/$layer" "$(layer_output "$layer")"
