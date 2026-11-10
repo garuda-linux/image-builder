@@ -1,6 +1,6 @@
 #!/bin/sh
 # Usage: ci/shared-state.sh [save-tools]
-#   Links mkosi.output and mkosi.cache to /cache/image-builder/<pipeline>/,
+#   Links mkosi.output, mkosi.cache and mkosi.workspace to /cache/image-builder/<pipeline>/,
 #   so the build jobs of one pipeline, its ISO child pipeline included, share
 #   layers, packages and caches. The jobs run one at a time (resource_group
 #   build-host), so they never write at once.
@@ -41,7 +41,9 @@ mkdir -p "$base" "$tools_base"
 find "$base" -mindepth 1 -maxdepth 1 -type d ! -name "$pipeline" -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 find "$tools_base" -mindepth 1 -maxdepth 1 -type d ! -name "$tools_key" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
-for dir in mkosi.output mkosi.cache; do
+# mkosi.workspace too: mkosi renames finished images from it into
+# mkosi.output, which needs both on one device, or it copies every layer
+for dir in mkosi.output mkosi.cache mkosi.workspace; do
   mkdir -p "$base/$pipeline/$dir"
   [ -L "$dir" ] || rm -rf -- "$dir"
   ln -sfn "$base/$pipeline/$dir" "$dir"
@@ -58,4 +60,4 @@ if [ -d "$tools/mkosi.tools" ] && [ -f "$tools/mkosi.tools.manifest" ]; then
   echo "Reusing the tools tree $tools_key"
 fi
 
-echo "Sharing mkosi.output and mkosi.cache with pipeline $pipeline: $(du -sh "$base/$pipeline" | cut -f1)"
+echo "Sharing mkosi.output, mkosi.cache and mkosi.workspace with pipeline $pipeline: $(du -sh "$base/$pipeline" | cut -f1)"
