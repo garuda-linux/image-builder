@@ -212,7 +212,7 @@ flowchart LR
 - `base` and `live-initrd` have an incremental cache of mkosi (`mkosi.cache/<key>~<layer>.cache`), which mkosi reuses as long as the configuration is the same. `build.sh` removes it when it has package updates or the layer is named with `--rebuild-layer`.
 - `live-initrd` is a cpio archive without a pacman database, so the check uses its mkosi cache tree. A layer without a database to check is rebuilt.
 - The sync needs the network. A build that cannot sync stops.
-- The first build has no mkosi keyring yet, so it skips the sync and builds every layer.
+- The first build has no mkosi keyring yet, so it skips the check and builds every layer. The same holds for a CI job that starts without `mkosi.cache/`.
 
 > [!NOTE]
 > The check sees only versions. A package rebuilt under the same version, and the driver packages that the `mhwd` layer downloads into its local repository instead of installing them, need `--rebuild-layer`, for example `./build.sh --rebuild-layer mhwd iso mokka`.
@@ -262,7 +262,7 @@ $ sbom mkosi.output/garuda-lima.manifest garuda-lima 20261107 >garuda-lima.spdx.
 
 mkosi builds a tree of Arch Linux tools in `mkosi.tools/` (`ToolsTree=` in `mkosi.conf`) and runs its own work with the tools from it: _pacman_, _systemd-repart_ and the file system tools. `build.sh` runs its steps after mkosi in the same tree, through `mkosi sandbox`: the Lima disk, the ISO assembly, the checks and the SBOM. Both therefore use the same tool versions, on every host.
 
-The tree comes from the Arch Linux archive at the date in `ToolsTreeSnapshot=`, so tool versions only change when this date changes. Extra tools for `build.sh` are in `ToolsTreePackages=`.
+The tree comes from the Arch Linux archive at the date in `ToolsTreeSnapshot=`, so tool versions only change when this date changes. Extra tools for `build.sh` are in `ToolsTreePackages=`. mkosi 27 rebuilds the tree only for `mkosi build` or with `--force`, so the package check runs `mkosi --force sandbox`, which rebuilds a missing or outdated tree before the check.
 
 > [!NOTE]
 > Bump `ToolsTreeSnapshot=` now and then. The _archlinux-keyring_ in the tree only knows the packager keys of its date, and packages signed by a newer key fail their signature check.

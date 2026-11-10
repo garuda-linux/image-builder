@@ -167,6 +167,10 @@ packages_main() {
 check_packages() {
   local env_args=() layer word kind line result
 
+  # First build, as in packages_main: without a mkosi keyring cache every layer
+  # counts as unknown, so the sandbox, which needs the tools tree, is skipped
+  compgen -G "mkosi.cache/*~main.keyring.cache/*" >/dev/null || return 0
+
   for layer in "$@"; do
     env_args+=(--environment="$(build_var "$layer")=1")
   done
@@ -174,8 +178,10 @@ check_packages() {
   mkdir -p "$CHECK_DIR"
   mkosi "${env_args[@]}" "${MKOSI_ARGS[@]}" --json summary >"$CHECK_DIR/summary.json"
 
-  # In a variable, so set -e stops the build when the sync fails
-  result="$(mkosi "${MKOSI_ARGS[@]}" sandbox -- "$PWD/build.sh" --packages "$CHECK_DIR/summary.json" "$@")"
+  # In a variable, so set -e stops the build when the sync fails. mkosi 27 runs
+  # no verb but build on a missing or outdated tools tree, --force builds it
+  # first (after a ToolsTreeSnapshot= bump, for example).
+  result="$(mkosi "${MKOSI_ARGS[@]}" --force sandbox -- "$PWD/build.sh" --packages "$CHECK_DIR/summary.json" "$@")"
 
   while read -r word layer kind line; do
     case "$word" in
