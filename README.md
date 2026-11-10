@@ -40,6 +40,14 @@ The pages in `docs/` describe how to operate image-builder:
 | [Continuous integration](docs/ci.md)       | jobs, triggers, publishing, signing, project setup        |
 | [Troubleshooting](docs/troubleshooting.md) | known problems and their solutions                        |
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development shell, checks and commit messages. Report security issues as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+image-builder is licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`), see [LICENSE](LICENSE).
+
 ## See also
 
 - [mkosi documentation](https://github.com/systemd/mkosi/blob/main/mkosi/resources/man/mkosi.1.md)
