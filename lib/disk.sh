@@ -5,6 +5,7 @@
 
 DISK_LOOP=""
 DISK_MNT=""
+DISK_NODES=()
 
 disk_cleanup() {
   if [[ -n "$DISK_MNT" ]]; then
@@ -15,7 +16,31 @@ disk_cleanup() {
   if [[ -n "$DISK_LOOP" ]]; then
     losetup -d "$DISK_LOOP" 2>/dev/null || true
   fi
-  DISK_LOOP="" DISK_MNT=""
+
+  if ((${#DISK_NODES[@]} > 0)); then
+    rm -f "${DISK_NODES[@]}"
+  fi
+  DISK_LOOP="" DISK_MNT="" DISK_NODES=()
+}
+
+# Without udev (CI container) the kernel adds the loop partitions, but nothing
+# creates their nodes in /dev. They are made from sysfs here.
+disk_partition_nodes() {
+  local loop="${DISK_LOOP#/dev/}" part node major minor
+
+  for part in /sys/block/"$loop"/"$loop"p*; do
+    [[ -r "$part/dev" ]] || continue
+
+    node="/dev/${part##*/}"
+    [[ -b "$node" ]] && continue
+
+    IFS=: read -r major minor <"$part/dev"
+    mknod "$node" b "$major" "$minor"
+
+    DISK_NODES+=("$node")
+  done
+
+  [[ -b "${DISK_LOOP}p2" ]] || die "no partition 2 on $DISK_LOOP"
 }
 
 # disk_mount <raw>: mounts the subvolumes and the ESP at /efi under DISK_MNT
@@ -27,6 +52,7 @@ disk_mount() {
   DISK_LOOP="$(losetup --find --show --partscan "$raw")"
   DISK_MNT="$(mktemp -d)"
   udevadm settle || true
+  disk_partition_nodes
 
   local root="${DISK_LOOP}p2" opts="noatime,compress=zstd"
 
