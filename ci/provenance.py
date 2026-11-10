@@ -12,6 +12,18 @@ from datetime import UTC, datetime
 USAGE = "usage: ci/provenance.py <output name>"
 
 
+def image_dependency(image):
+    """The builder image as a resolved dependency, with its digest when pinned."""
+    name, _, digest = image.partition("@")
+    dependency = {"uri": f"docker://{name}"}
+    algorithm, _, value = digest.partition(":")
+
+    if value:
+        dependency["digest"] = {algorithm: value}
+
+    return dependency
+
+
 def predicate(output, env):
     project = env("CI_PROJECT_URL", "")
     return {
@@ -35,7 +47,7 @@ def predicate(output, env):
                     "uri": f"git+{project}@{env('CI_COMMIT_REF_NAME', '')}",
                     "digest": {"gitCommit": env("CI_COMMIT_SHA", "")},
                 },
-                {"uri": f"docker://{env('CI_JOB_IMAGE', '')}"},
+                image_dependency(env("CI_JOB_IMAGE", "")),
             ],
         },
         "runDetails": {
@@ -52,6 +64,7 @@ def predicate(output, env):
 def main():
     if len(sys.argv) < 2 or not sys.argv[1]:
         sys.exit(USAGE)
+
     json.dump(predicate(sys.argv[1], os.environ.get), sys.stdout, indent=2, sort_keys=True)
     print()
 

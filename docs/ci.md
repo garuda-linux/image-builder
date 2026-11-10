@@ -166,7 +166,7 @@ where `<default_branch>` is the default branch of the project.
 The same job attaches two signed in-toto attestations to the image digest, also keyless:
 
 - the SPDX SBOM of the image (`--type spdxjson`), see [Building#SBOM](building.md#sbom),
-- an SLSA v1 build provenance (`--type slsaprovenance1`) from `ci/provenance.py`: the repository, commit, pipeline, job, builder image and runner that made the image.
+- an SLSA v1 build provenance (`--type slsaprovenance1`) from `ci/provenance.py`: the repository, commit, pipeline, job, builder image (with its digest when the image is pinned by digest) and runner that made the image.
 
 To verify and read them, use the same identity as for the signature:
 
