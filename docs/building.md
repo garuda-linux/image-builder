@@ -123,6 +123,8 @@ Both command lines are embedded as a `.cmdline` section and covered by the signa
 
 The older pair of the same kernel is removed, and `garuda-<kernel>.efi` and `garuda-<kernel>-eac.efi` link to the newest.
 
+Installed systems get the signed UKIs from the `garuda-uki` pacman package, which adds them to the _systemd-boot_ menu with `bootctl link`. The package lives in [pkgbuilds](https://gitlab.com/garuda-linux/pkgbuilds).
+
 ## Signing
 
 With `SB_KEY` and `SB_CERT` set, `build.sh` signs the boot chain of the ISO and the generic UKI. Without them, both are built unsigned:

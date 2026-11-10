@@ -300,6 +300,26 @@ uki:
         upload "$VERSION/$file.sha256" "$file.sha256"
         upload "latest/garuda-$kernel$suffix.efi" "$file"
       done
+
+      # The source of the garuda-uki package: signed UKIs per kernel version,
+      # never overwritten, so a pinned sha256 in its PKGBUILD stays valid
+      if [ -z "${SB_KEY:-}" ]; then
+        echo "Unsigned build: nothing under the kernel version"
+        exit 0
+      fi
+
+      kver="$(pacman -Q --dbpath mkosi.output/root/var/lib/pacman "$kernel" | cut -d' ' -f2)"
+      if curl --fail --silent --output /dev/null --header "JOB-TOKEN: $CI_JOB_TOKEN" "$packages/$kver/garuda-$kernel.efi"; then
+        echo "$kver exists already and stays as it is"
+        exit 0
+      fi
+
+      cp "${SB_CA_CERT:-$SB_CERT}" mkosi.output/garuda-secureboot.crt
+      for suffix in "" -eac; do
+        upload "$kver/garuda-$kernel$suffix.efi" "garuda-$kernel-$VERSION$suffix.efi"
+      done
+
+      upload "$kver/garuda-secureboot.crt" garuda-secureboot.crt
   artifacts:
     paths:
       - mkosi.output/garuda-*.efi.sha256
