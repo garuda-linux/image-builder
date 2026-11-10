@@ -73,10 +73,9 @@ echo "Booting $target"
 status=0
 
 # -k: nspawn turns SIGTERM into SIGRTMIN+3, which a hung systemd ignores.
-# --link-journal=no: the default (auto) reads the host machine ID, which the
-# CI container does not have ("Failed to retrieve machine ID").
+# The CI container has no host machine ID and no system bus.
 timeout -k 30 "$timeout" systemd-nspawn --quiet --register=no --private-network --link-journal=no \
-  --console=pipe --machine=boot-check "${nspawn_root[@]}" \
+  --resolv-conf=off --console=pipe --machine=boot-check "${nspawn_root[@]}" \
   --bind-ro="$work/check.sh:/run/boot-check/check.sh" \
   --bind-ro="$work/boot-check.service:/run/systemd/system/boot-check.service" \
   --bind="$work/out:/run/boot-check/out" \
