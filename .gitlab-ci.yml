@@ -166,6 +166,8 @@ iso:
   before_script:
     - export VERSION="$(date +%Y%m%d)"
     - ci/shared-state.sh
+  after_script:
+    - ci/shared-state.sh save-tools
 
 distrobox:
   extends: .build

@@ -86,7 +86,7 @@ The build jobs of one pipeline, including the ISO jobs of its child pipeline, sh
 - `ci/shared-state.sh` links `mkosi.output/` and `mkosi.cache/` to `/cache/image-builder/<pipeline>/` on the cache volume of the runner. mkosi resolves the links.
 - A later job reuses the layers, packages and repository metadata of an earlier one through the layer stamps and the package check, see [Building#Incremental builds](building.md#incremental-builds).
 - The `iso` trigger job passes the pipeline id to the child pipeline as `IB_PIPELINE_ID`.
-- `mkosi.tools/` is not shared: mkosi removes it as a whole when it rebuilds the tools tree. Each job builds it again from the shared packages.
+- The tools tree is shared by all pipelines, under `/cache/image-builder-tools/<key>/`, where the key is a hash of `mkosi.conf`, `mkosi.conf.d/` and the mkosi version. A job links `mkosi.tools/` and `mkosi.tools.manifest` to it when it exists, and mkosi uses it while the manifest matches. Otherwise mkosi builds the tree itself, and `ci/shared-state.sh save-tools` in `after_script` saves it, also after a failed build. Trees unused for a week are removed.
 - Each job removes the directories of pipelines two days or older.
 
 The `distrobox` and `lima` jobs run [boot-check](testing.md#boot-check) before they publish, so an image that does not boot is never published. The registry keeps the last image that did.

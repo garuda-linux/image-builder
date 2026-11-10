@@ -82,6 +82,8 @@ iso:{edition}:
         cp --reflink=auto "$(readlink -f "mkosi.output/garuda-$EDITION.iso")" \\
           "/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
       fi
+  after_script:
+    - ci/shared-state.sh save-tools
   # The ISO (about 5 GB) exceeds the artifact size limit and stays on the runner host
   artifacts:
     paths:
