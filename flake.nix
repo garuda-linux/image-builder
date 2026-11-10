@@ -81,6 +81,7 @@
             "lima-test"
             "iso-test"
             "vm-test"
+            "repro-check"
             "lint"
             "manifest-diff"
             "sbom"
@@ -114,6 +115,7 @@
               (tool "lima-test")
               (tool "iso-test")
               (tool "vm-test")
+              (tool "repro-check")
               (tool "lint")
               (pytool "manifest-diff" "scripts/manifest_diff.py")
               (pytool "sbom" "scripts/sbom.py")

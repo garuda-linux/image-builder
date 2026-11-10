@@ -4,13 +4,14 @@ Each output has a test command in the development shell. The continuous integrat
 
 The tests per output:
 
-| Output    | Test                                | Checks                                                                                                |
-| --------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| any       | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition |
-| distrobox | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                           |
-| Lima      | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                        |
-| ISO       | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                           |
-| VM image  | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                          |
+| Output              | Test                                | Checks                                                                                                |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| any                 | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition |
+| distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                           |
+| Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                        |
+| ISO                 | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                           |
+| VM image            | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                          |
+| ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                  |
 
 ## Configuration check
 
@@ -154,6 +155,32 @@ added    cloud-init 26.2-1
 ```
 
 Compare a manifest with the one of an earlier build to see what changed between them. The continuous integration writes this list for every build as the `.manifest.changes` artifact, see [Continuous integration#Jobs](ci.md#jobs).
+
+## Reproducibility
+
+`repro-check` builds the ISO of an edition, the generic UKIs and the distrobox image twice, each with `--fresh`, and compares the results. Without an argument, it builds _mokka_:
+
+```console
+$ repro-check dr460nized
+```
+
+Both runs use the same `VERSION` and `SOURCE_DATE_EPOCH`, see [Building#Reproducible builds](building.md#reproducible-builds). The second run passes `--cache-only=metadata` to mkosi, so it installs from the repository metadata of the first run, and a package update in between does not show up as a difference. The script compares by sha256:
+
+- the erofs images, verity hash trees and root hashes of the `root`, `desktop`, `mhwd` and `live` layers
+- the ISO
+- the rescue and Easy Anti-Cheat UKIs
+- every file of the distrobox OCI layout
+
+The copies of both runs stay in `mkosi.cache/repro/a/` and `mkosi.cache/repro/b/`. For each file that differs, `repro-check` writes a [diffoscope](https://diffoscope.org/) report to `mkosi.cache/repro/diffoscope/` when _diffoscope_ is installed. The development shell does not include it, because of its size. To compare one file by hand:
+
+```console
+$ nix run nixpkgs#diffoscope -- mkosi.cache/repro/a/<file> mkosi.cache/repro/b/<file>
+```
+
+where `<file>` is a path from the list of differing files.
+
+> [!NOTE]
+> Six fresh builds take several hours. With `ISO_COMPRESSION=max`, the two ISO builds take longer still.
 
 ## See also
 

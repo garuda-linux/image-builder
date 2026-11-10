@@ -15,6 +15,7 @@ Each command runs a script of the `scripts/` directory in the checkout, so chang
 | `distrobox-test` | creates a box from the built image and checks it                                                                   |
 | `lima-test`      | boots the Lima image and checks it                                                                                 |
 | `iso-test`       | boots a live ISO in QEMU                                                                                           |
+| `repro-check`    | builds twice and compares the outputs, see [Testing#Reproducibility](testing.md#reproducibility)                   |
 | `lint`           | runs the pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_ and a mkosi check of every output and edition |
 | `manifest-diff`  | lists the package changes between two builds                                                                       |
 | `sbom`           | writes the SPDX SBOM of a package manifest, see [SBOM](#sbom)                                                      |
