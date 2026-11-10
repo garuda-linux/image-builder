@@ -38,6 +38,11 @@
           package = pkgs.prek;
           hooks = {
             commitizen.enable = true;
+            # The default files pattern only matches Dockerfile*
+            hadolint = {
+              enable = true;
+              files = "(Dockerfile|Containerfile)$";
+            };
             nixfmt.enable = true;
             scripts-formatting = {
               enable = true;
@@ -96,6 +101,7 @@
 
           deps = [
             "git"
+            "hadolint"
             "lima"
             "mkosi"
             "qemu"
@@ -120,6 +126,7 @@
               (pytool "manifest-diff" "scripts/manifest_diff.py")
               (pytool "sbom" "scripts/sbom.py")
               git
+              hadolint
               lima
               mkosi
               nixfmt

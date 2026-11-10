@@ -4,18 +4,18 @@ Each output has a test command in the development shell. The continuous integrat
 
 The tests per output:
 
-| Output              | Test                                | Checks                                                                                                |
-| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| any                 | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition |
-| distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                           |
-| Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                        |
-| ISO                 | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                           |
-| VM image            | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                          |
-| ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                  |
+| Output              | Test                                | Checks                                                                                                            |
+| ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| any                 | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_, mkosi config of every output and edition |
+| distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                                       |
+| Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                                    |
+| ISO                 | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                                       |
+| VM image            | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                                      |
+| ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                              |
 
 ## Configuration check
 
-`lint` runs the pre-commit hooks, _shellcheck_ and _shfmt_ on all shell scripts, _ruff_ on the Python scripts, _yamllint_ on the YAML files, and `mkosi summary` for every output and every edition. The mkosi check parses the configuration without building anything. The continuous integration runs `lint` before every build. To check the configuration of one edition only:
+`lint` runs the pre-commit hooks, _shellcheck_ and _shfmt_ on all shell scripts, _ruff_ on the Python scripts, _yamllint_ on the YAML files, _hadolint_ on the two Containerfiles, and `mkosi summary` for every output and every edition. The mkosi check parses the configuration without building anything. The continuous integration runs `lint` before every build. To check the configuration of one edition only:
 
 ```console
 $ mkosi --profile iso --profile <edition> \

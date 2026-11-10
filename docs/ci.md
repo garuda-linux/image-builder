@@ -33,17 +33,17 @@ Add a new shared file to both, otherwise a change to it does not trigger the bui
 
 The pipeline runs in three stages:
 
-| Stage   | Job            | Purpose                                                                                                                             |
-| ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                     |
-| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                                |
-| lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, mkosi config of every output and edition                         |
-| lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                     |
-| lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _commitizen_) in check mode     |
-| build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                                 |
-| build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                         |
-| build   | `uki`          | builds the generic UKI, signed with the `SB_KEY`, `SB_CERT` and `SB_CA_CERT` file variables, and publishes the `garuda-uki` package |
-| build   | `iso`          | runs the child pipeline with one `iso:<edition>` job per edition to build                                                           |
+| Stage   | Job            | Purpose                                                                                                                                     |
+| ------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                             |
+| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                                        |
+| lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_, mkosi config of every output and edition                     |
+| lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                             |
+| lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _hadolint_, _commitizen_) in check mode |
+| build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                                         |
+| build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                                 |
+| build   | `uki`          | builds the generic UKI, signed with the `SB_KEY`, `SB_CERT` and `SB_CA_CERT` file variables, and publishes the `garuda-uki` package         |
+| build   | `iso`          | runs the child pipeline with one `iso:<edition>` job per edition to build                                                                   |
 
 The flow of a pipeline on the default branch:
 

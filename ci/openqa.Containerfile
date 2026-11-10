@@ -11,6 +11,8 @@ FROM ${BASE}
 LABEL org.opencontainers.image.title="garuda openQA" \
       org.opencontainers.image.source="https://gitlab.com/garuda-linux/tools/image-builder"
 
+# Package versions are not pinned: Tumbleweed is rolling and zypper resolves the versions of the base image.
+# hadolint ignore=DL3037
 RUN zypper -n install --no-recommends 'perl(Inline::Python)' qemu-ovmf-x86_64 \
     && zypper -n clean --all \
     && perl -MInline::Python -e 1
@@ -35,6 +37,8 @@ RUN set -e; \
 # upgrades openQA to the newest build. That upgrade fails on the read-only ISO
 # mount of webui-local.sh (rpm cannot chown /var/lib/openqa/share/factory/iso).
 # The image has all of them, so the step only runs when one is missing.
+# $packages stays literal: openqa-bootstrap expands it when it sources the line.
+# hadolint ignore=SC2016
 RUN b=/usr/share/openqa/script/openqa-bootstrap; \
     if [ -f "$b" ]; then \
         grep -q '^retry -e -s 30 -r 7 -- sh -c "zypper' "$b" || { echo "zypper step not found in $b"; exit 1; }; \

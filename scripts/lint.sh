@@ -64,6 +64,12 @@ else
   echo "          FROM tag date ${from_snapshot:-none} does not match ARCH_SNAPSHOT ${arg_snapshot:-none}"
 fi
 
+if command -v hadolint >/dev/null; then
+  if hadolint ci/Containerfile ci/openqa.Containerfile; then ok "hadolint"; else fail "hadolint"; fi
+else
+  echo "hadolint not found, Containerfile checks skipped (it is in the development shell and flake-check)"
+fi
+
 # Layers only match when build.sh marks them for a build, see lib/layers.sh
 all_layers=()
 for layer in BASE ROOT DESKTOP LIVE MHWD LIVE_INITRD; do
