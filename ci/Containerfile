@@ -8,13 +8,21 @@
 #   skopeo, cosign         publish, sign and attest the distrobox image
 #   shellcheck, shfmt,     the lint job
 #   ruff, yamllint
-# Dated tag, bumped by Renovate. The weekly schedule rebuilds the image for package updates.
 FROM docker.io/library/archlinux:base-20261101.0.620205
+
+# The snapshot of the FROM tag, bumped with it and checked by scripts/lint.sh.
+# pacman installs from that snapshot, not from the live mirrors, so rebuilding
+# the image does not pick up packages newer than the base image.
+ARG ARCH_SNAPSHOT=2026/11/01
 
 LABEL org.opencontainers.image.title="garuda image-builder" \
       org.opencontainers.image.source="https://gitlab.com/garuda-linux/tools/image-builder"
 
-RUN pacman -Syu --noconfirm --needed \
+# $repo and $arch are pacman variables: the single quotes keep them literal.
+# hadolint ignore=SC2016
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCH_SNAPSHOT" \
+        >/etc/pacman.d/mirrorlist \
+    && pacman -Syu --noconfirm --needed \
         mkosi \
         cosign \
         curl \

@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "docker:pinDigests"],
   "schedule": ["before 6am on monday"],
   "timezone": "UTC",
   "lockFileMaintenance": {
@@ -25,8 +25,9 @@
       "customType": "regex",
       "managerFilePatterns": ["/^ci/iso_pipeline\\.py$/"],
       "matchStrings": [
-        "image: (?<depName>[a-z0-9./-]+):(?<currentValue>[0-9][0-9.]*)"
+        "image: (?<depName>[a-z0-9./-]+):(?<currentValue>[0-9][0-9.]*)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?"
       ],
+      "autoReplaceStringTemplate": "image: {{{depName}}}:{{{newValue}}}{{#if newDigest}}@{{{newDigest}}}{{/if}}",
       "datasourceTemplate": "docker"
     },
     {
@@ -66,10 +67,11 @@
   },
   "packageRules": [
     {
-      "description": "Dated base tags of the builder image, such as base-20261101.0.620205",
+      "description": "Dated base tags of the builder image, such as base-20261101.0.620205. The tag is immutable and the build already installs from its archive snapshot",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["docker.io/library/archlinux", "archlinux"],
-      "versioning": "regex:^base-(?<major>\\d{8})\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+      "versioning": "regex:^base-(?<major>\\d{8})\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "pinDigests": false
     },
     {
       "description": "A new tools tree changes every build: let the merge request build the distrobox image",

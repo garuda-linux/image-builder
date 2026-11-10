@@ -52,6 +52,18 @@ else
   echo "yamllint not found, YAML checks skipped (it is in the development shell and the builder image)"
 fi
 
+# ci/Containerfile installs from the archive snapshot of its FROM tag. Renovate
+# bumps the tag and ARCH_SNAPSHOT together. A mismatch either builds against a
+# different snapshot or fails when the archive does not have the package DB.
+from_snapshot="$(sed -n 's|^FROM .*archlinux:base-\([0-9]\{8\}\).*|\1|p' ci/Containerfile)"
+arg_snapshot="$(sed -n 's|^ARG ARCH_SNAPSHOT=\([0-9]\{4\}\)/\([0-9]\{2\}\)/\([0-9]\{2\}\)$|\1\2\3|p' ci/Containerfile)"
+if [[ -n "$from_snapshot" && "$from_snapshot" == "$arg_snapshot" ]]; then
+  ok "builder image snapshot"
+else
+  fail "builder image snapshot"
+  echo "          FROM tag date ${from_snapshot:-none} does not match ARCH_SNAPSHOT ${arg_snapshot:-none}"
+fi
+
 # Layers only match when build.sh marks them for a build, see lib/layers.sh
 all_layers=()
 for layer in BASE ROOT DESKTOP LIVE MHWD LIVE_INITRD; do
