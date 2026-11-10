@@ -102,10 +102,15 @@
           deps = [
             "git"
             "hadolint"
+            "jq"
             "lima"
+            "mtools"
             "mkosi"
             "qemu"
             "skopeo"
+            "swtpm"
+            "systemd"
+            "virt-firmware"
           ];
         in
         {
@@ -127,7 +132,9 @@
               (pytool "sbom" "scripts/sbom.py")
               git
               hadolint
+              jq
               lima
+              mtools
               mkosi
               nixfmt
               prek
@@ -137,6 +144,9 @@
               shellcheck
               shfmt
               skopeo
+              swtpm
+              systemd
+              python3Packages.virt-firmware
               yamllint
             ];
 

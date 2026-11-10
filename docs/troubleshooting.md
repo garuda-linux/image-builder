@@ -63,7 +63,7 @@ mkosi copies `mkosi.extra/` as root. Change the owner in the `mkosi.postinst.chr
 
 ## Live ISO
 
-Test each boot path with `iso-test`, see [Testing#Live ISO](testing.md#live-iso). The serial log of the boot is in `mkosi.cache/qemu/iso-serial.log`.
+Test each boot path with `iso-test`, see [Testing#Live ISO](testing.md#live-iso). The journal of the VM is in `mkosi.cache/qemu/iso-test-journal/`, read it with `journalctl --directory=`.
 
 ### The boot stops in emergency mode
 
@@ -85,7 +85,7 @@ In the menu, `e` edits the options of an entry, for example to add `copytoram`, 
 
 ### The live system does not find its layers
 
-The initrd finds the boot disk by the label given in `garuda.label=` on the kernel command line, then the partitions `garuda-<layer>` and `garuda-<layer>-verity` on it. Check the output of `garuda-live-mount.service` in the serial log:
+The initrd finds the boot disk by the label given in `garuda.label=` on the kernel command line, then the partitions `garuda-<layer>` and `garuda-<layer>-verity` on it. Check the output of `garuda-live-mount.service` in the journal of the VM:
 
 - "no medium with the label": the label on the command line must match the volume label of the ISO, which `blkid` shows for the whole disk, for example `/dev/sdb`, not a partition.
 - "the layer partitions are missing": `lsblk -o NAME,PARTLABEL` on the disk must list the layer partitions. On a CD drive, they appear on the loop device of `systemd-loop@.service`: `journalctl -b -u "systemd-loop@*"` shows why it failed, for example a `systemd-dissect` message about the partitions of the image.

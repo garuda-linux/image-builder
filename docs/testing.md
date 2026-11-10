@@ -9,8 +9,8 @@ The tests per output:
 | any                 | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_, mkosi config of every output and edition |
 | distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                                       |
 | Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                                    |
-| ISO                 | `iso-test`                          | boot with UEFI from USB or CD, live desktop, installation, installed system                                       |
-| VM image            | `vm-test`                           | boot with UEFI as in virt-manager, first login with password change, desktop                                      |
+| ISO                 | `iso-test`                          | boot with UEFI from a virtio disk or CD, live desktop, installation, installed system                             |
+| VM image            | `vm-test`                           | boot with UEFI and a TPM, first login with password change, desktop                                               |
 | ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                              |
 
 ## Configuration check
@@ -74,13 +74,19 @@ $ limactl start --name=garuda \
 
 ## Live ISO
 
-`iso-test` boots an ISO in QEMU with UEFI, attached as a USB stick, in a window. The serial console goes to `mkosi.cache/qemu/iso-serial.log`. `build.sh` makes that directory for the owner of the checkout, because `mkosi.cache` belongs to root and the test tools run as the user. Without an argument, it boots the _mokka_ edition:
+`iso-test` boots an ISO with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM (_swtpm_). The VM writes to an overlay, `mkosi.cache/qemu/iso-test-live.qcow2`, so the ISO stays unchanged. `build.sh` makes `mkosi.cache/qemu/` for the owner of the checkout, because `mkosi.cache` belongs to root and the test tools run as the user. Without an argument, it boots the _mokka_ edition:
 
 ```console
 $ iso-test dr460nized
 ```
 
-The ISO boots in two ways, both with UEFI: as a USB stick, the default, and as a CD drive with `--cdrom`. The firmware finds the same ESP as GPT partition 1 or through the El Torito boot catalog. On a CD drive, the initrd reads the partitions through a loop device:
+The journal of the VM goes to `mkosi.cache/qemu/iso-test-journal/`, from the initrd on. Firmware and _systemd-boot_ output is not in it:
+
+```console
+$ journalctl --directory=mkosi.cache/qemu/iso-test-journal -b -u garuda-live-mount.service
+```
+
+The ISO boots in two ways, both with UEFI: as a virtio disk, the default, and as a CD drive with `--cdrom`. The firmware finds the same ESP as GPT partition 1 or through the El Torito boot catalog. On a CD drive, the initrd reads the partitions through a loop device. _systemd-vmspawn_ has no USB disk, so the USB stick path is left to openQA:
 
 ```console
 $ iso-test --cdrom
@@ -93,13 +99,21 @@ $ iso-test --disk
 $ iso-test --boot-disk
 ```
 
-The disk is `mkosi.cache/qemu/iso-test-disk.qcow2` (30 GB). Delete it to start from an empty disk.
+The disk is `mkosi.cache/qemu/iso-test-disk.qcow2` (30 GB). Its TPM state, `mkosi.cache/qemu/iso-test-tpm/`, stays with it, so a TPM enrollment by the installer still works with `--boot-disk`. Delete the disk to start from an empty disk and a fresh TPM.
 
 The VM has 6 GB of RAM. The `copytoram=y` boot option only copies the layer files when they fit with 2 GiB to spare, otherwise it boots from the medium. To test it with a `fast` build, give the VM more RAM:
 
 ```console
 $ iso-test --ram=12G
 ```
+
+A signed ISO, see [Building#Signing](building.md#signing), boots with Secure Boot on with `--secure-boot`:
+
+```console
+$ iso-test --secure-boot
+```
+
+The firmware variables then hold a generated platform key, the Microsoft KEK and db certificates, as on a PC, and the enrollment cert of the ISO in the MokList of _shim_. `iso-test` takes the cert from `EFI/garuda/garuda-secureboot.cer` on the ESP of the ISO, so it always matches the signature. _shim_ therefore starts _systemd-boot_ directly, without _MokManager_. The variables are made with _virt-fw-vars_ on every run. An unsigned ISO has no cert, and `iso-test` stops.
 
 Check on the live system:
 
@@ -115,13 +129,13 @@ Check on the installed system:
 
 ## VM image
 
-`vm-test` boots the VM image of an edition, `mkosi.output/garuda-vm-<edition>.qcow2`, in a QEMU window with UEFI and virtio graphics, as virt-manager does. Without an argument, it boots mokka:
+`vm-test` boots the VM image of an edition, `mkosi.output/garuda-vm-<edition>.qcow2`, with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM. The UKIs of the image are built on it and unsigned, so it does not boot with Secure Boot on. Without an argument, it boots mokka:
 
 ```console
 $ vm-test dr460nized
 ```
 
-The VM writes to an overlay, `mkosi.cache/qemu/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay of the last run again, for example to check a system after its first login. The serial console goes to `mkosi.cache/qemu/vm-serial.log`.
+The VM writes to an overlay, `mkosi.cache/qemu/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay, firmware variables and TPM of the last run again, for example to check a system after its first login. The journal of the VM goes to `mkosi.cache/qemu/vm-test-journal/`, read it with `journalctl --directory=`.
 
 Check on the first boot:
 

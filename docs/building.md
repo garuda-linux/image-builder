@@ -14,7 +14,8 @@ Each command runs a script of the `scripts/` directory in the checkout, so chang
 | `boot-check`     | boots an image with _systemd-nspawn_, see [Testing](testing.md)                                                                |
 | `distrobox-test` | creates a box from the built image and checks it                                                                               |
 | `lima-test`      | boots the Lima image and checks it                                                                                             |
-| `iso-test`       | boots a live ISO in QEMU                                                                                                       |
+| `iso-test`       | boots a live ISO with _systemd-vmspawn_                                                                                        |
+| `vm-test`        | boots the VM image of an edition with _systemd-vmspawn_                                                                        |
 | `repro-check`    | builds twice and compares the outputs, see [Testing#Reproducibility](testing.md#reproducibility)                               |
 | `lint`           | runs the pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_ and a mkosi check of every output and edition |
 | `manifest-diff`  | lists the package changes between two builds                                                                                   |
