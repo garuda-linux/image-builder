@@ -4,15 +4,19 @@ set -euo pipefail
 repo=/opt/ght/pkg
 mkdir -p "$repo"
 
-# A keyring of its own for the driver repository (GPGDir= in pacman-ght.conf).
-# The system keyring is made at boot only after ght-live.service has run, see
-# docs/architecture.md#Pacman keyring. This keyring only verifies the ght packages.
-ght_gpg=/opt/ght/gnupg
+# A temporary keyring checks the downloaded driver packages. It is not kept:
+# on the ISO the repository sits on the dm-verity protected layer, so
+# pacman-ght.conf has SigLevel = Never for it, and a kept keyring would carry
+# a new private master key on every build.
+ght_gpg="$(mktemp -d)"
 pacman-key --gpgdir "$ght_gpg" --init
 pacman-key --gpgdir "$ght_gpg" --populate
 
 # shellcheck disable=SC2086 # MHWD_PACKAGES is a space-separated list
 pacman -Syw --noconfirm --gpgdir "$ght_gpg" --cachedir "$repo" ${MHWD_PACKAGES}
+
+gpgconf --homedir "$ght_gpg" --kill all
+rm -rf "$ght_gpg"
 
 # The .sig files stay next to the packages, repo-add puts them into the database
 packages=()
@@ -21,8 +25,20 @@ for file in "$repo"/*.pkg.tar*; do
 done
 repo-add "$repo/ght.db.tar.gz" "${packages[@]}"
 
-gpgconf --homedir "$ght_gpg" --kill all
-rm -f "$ght_gpg"/S.*
+# repo-add stamps the build time on the archive entries. Repacked with sorted
+# entries and SOURCE_DATE_EPOCH, they only change with their content.
+repack() {
+  local archive="$1" tmp
+  tmp="$(mktemp -d)"
+  bsdtar -xf "$archive" -C "$tmp"
+  find "$tmp" -exec touch -h -d "@${SOURCE_DATE_EPOCH:?}" {} +
+  (cd "$tmp" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort |
+    bsdtar --format=ustar --uid 0 --gid 0 --numeric-owner --no-recursion -cf - -T -) |
+    gzip -9 -n >"$archive"
+  rm -rf "$tmp"
+}
+repack "$repo/ght.db.tar.gz"
+repack "$repo/ght.files.tar.gz"
 
 # Only the driver repository belongs in this layer
 rm -f /var/lib/pacman/sync/* /var/log/pacman.log

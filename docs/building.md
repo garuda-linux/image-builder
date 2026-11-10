@@ -236,7 +236,16 @@ The `build` command of the development shell passes `VERSION` and `ISO_COMPRESSI
 Every timestamp in the images is `SOURCE_DATE_EPOCH`, by default the time of the last Git commit. mkosi clamps the file times of the layers and of the live initrd to it, and `build.sh` uses it for the erofs images (file times and a UUID derived from the layer name), the FAT image of the EFI boot loader and the file dates and volume dates of the ISO. As a result, the ISO assembly gives the same bytes for the same layers. Set `SOURCE_DATE_EPOCH` in the environment of `build.sh` to use another time. The `build` command of the development shell does not pass it on, because the Nix shell sets it to `315532800` (1980).
 
 > [!NOTE]
-> Reused layers keep the time of the build that made them. For an ISO that a second, independent build reproduces, build with `--fresh` from a clean commit. As of November 2026, it is not confirmed that the layer contents themselves are byte-identical between builds: _pacman_ records install dates, and some caches in the image hold timestamps.
+> Reused layers keep the time of the build that made them. For an ISO that a second, independent build reproduces, build with `--fresh` from a clean commit. `repro-check` builds twice and compares the results, see [Testing#Reproducibility](testing.md#reproducibility).
+
+The first `repro-check` runs in November 2026 found the generic UKIs and the `mhwd` layer identical after the fixes below, and these sources of differences in the layers:
+
+| File                                         | Cause                                                           | Fix                                                                                                                                                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/var/cache/ldconfig/aux-cache`              | inode numbers and ctimes of the build                           | `RemoveFiles=` in every image that installs packages. A postinstall script is too early, because later packages of the same output write the file again                                                    |
+| `/etc/garuda/garuda-config-agent/configs.db` | the _garuda-config-agent_ hook writes Python sets in hash order | `PYTHONHASHSEED=0` (`Environment=` and `PassEnvironment=` in `mkosi.conf`) fixes `base`. In `root` and `live` the `existing_files` list stays unordered until the sorted _garuda-config-agent_ is released |
+| `/opt/ght/gnupg/`                            | `pacman-key --init` made a new master key on every build        | a temporary keyring, `SigLevel = Never` for the driver repository                                                                                                                                          |
+| `/opt/ght/pkg/ght.{db,files}.tar.gz`         | _repo-add_ stamps the build time on the entries                 | repacked with sorted entries and `SOURCE_DATE_EPOCH`                                                                                                                                                       |
 
 ## SBOM
 

@@ -259,7 +259,7 @@ The images ship no pacman keyring. A keyring made at build time would give every
 | live ISO                 | `garuda-live-keyring.service`                 |
 | installed system         | the Calamares _postcfg_ module                |
 
-The one exception is the keyring of the driver repository in `/opt/ght/gnupg`, made by `mkosi.postinst.chroot` of the `mhwd` layer and set as `GPGDir=` in `/opt/ght/pacman-ght.conf`. The live ISO installs the drivers with `ght-live.service` before `garuda-live-keyring.service` makes the system keyring, so the driver packages are checked against this keyring (`SigLevel = Required DatabaseOptional`). It is the same on every ISO, but pacman uses it only for the packages of `/opt/ght/pkg`.
+The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot` of the `mhwd` layer checks the signatures of the driver packages when it downloads them, with a temporary keyring that it removes afterwards. On the ISO the repository is part of the dm-verity protected `mhwd` layer, so `/opt/ght/pacman-ght.conf` has `SigLevel = Never` for it, and `ght-live.service` installs the drivers before `garuda-live-keyring.service` makes the system keyring. A keyring kept in the layer would hold a new private master key on every build, and the ISO would differ between builds.
 
 ## systemd-boot
 
