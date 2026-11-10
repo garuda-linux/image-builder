@@ -73,11 +73,17 @@ echo "Booting $target"
 status=0
 
 # -k: nspawn turns SIGTERM into SIGRTMIN+3, which a hung systemd ignores.
-# The CI container has no host machine ID and no system bus.
-timeout -k 30 "$timeout" systemd-nspawn --quiet --register=no --private-network --link-journal=no \
+# The CI container has no host machine ID and no system bus. --keep-unit: without
+# it, nspawn asks systemd over D-Bus for a scope unit.
+# systemd-firstboot masked for the check: the machine ID is "uninitialized", so
+# it would prompt for the timezone on a TTY that --console=pipe does not have
+# (systemd.firstboot=off on the command line does not reach it in a container).
+# The Lima and VM images mask it, the bare layers and the distrobox image do not.
+timeout -k 30 "$timeout" systemd-nspawn --quiet --register=no --keep-unit --private-network --link-journal=no \
   --resolv-conf=off --console=pipe --machine=boot-check "${nspawn_root[@]}" \
   --bind-ro="$work/check.sh:/run/boot-check/check.sh" \
   --bind-ro="$work/boot-check.service:/run/systemd/system/boot-check.service" \
+  --bind-ro=/dev/null:/run/systemd/system/systemd-firstboot.service \
   --bind="$work/out:/run/boot-check/out" \
   --boot -- systemd.wants=boot-check.service \
   </dev/null >"$work/console.log" 2>&1 || status=$?
