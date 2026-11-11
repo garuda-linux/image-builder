@@ -120,20 +120,39 @@ sb_write_der() {
   openssl x509 -in "$(sb_enroll_cert)" -outform DER -out "$1"
 }
 
-# shimx64.efi and mmx64.efi into a directory, downloaded once into mkosi.cache
-fetch_shim() {
-  local dest="$1" cache="$PWD/mkosi.cache/shim" rpm
-  rpm="$cache/${SHIM_URL##*/}"
+shim_rpm() {
+  echo "$PWD/mkosi.cache/shim/${SHIM_URL##*/}"
+}
 
-  mkdir -p "$cache" "$dest"
+check_shim_rpm() {
+  echo "$SHIM_SHA512  $1" | sha512sum --check --quiet ||
+    die "$1 does not match the pinned sha512, remove it to download it again"
+}
+
+# Before the build, on the host: the post-build steps run in the tools tree and stay offline
+download_shim() {
+  sb_enabled || return 0
+  local rpm
+  rpm="$(shim_rpm)"
+
   if [[ ! -f "$rpm" ]]; then
     log "Downloading shim $SHIM_VERSION"
+    mkdir -p "${rpm%/*}"
     curl -fsSL --proto '=https' -o "$rpm.part" "$SHIM_URL"
     mv "$rpm.part" "$rpm"
   fi
 
-  echo "$SHIM_SHA512  $rpm" | sha512sum --check --quiet ||
-    die "$rpm does not match the pinned sha512, remove it to download it again"
+  check_shim_rpm "$rpm"
+}
+
+# shimx64.efi and mmx64.efi from the rpm of download_shim into a directory
+fetch_shim() {
+  local dest="$1" rpm
+  rpm="$(shim_rpm)"
+
+  [[ -f "$rpm" ]] || die "$rpm missing, download_shim fetches it before the build"
+  check_shim_rpm "$rpm"
+  mkdir -p "$dest"
 
   local tmp="$dest/rpm" file
   mkdir -p "$tmp"

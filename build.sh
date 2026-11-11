@@ -243,6 +243,7 @@ main() {
       MKOSI_ARGS=(--profile "$output" --profile "$edition" "${kernel_args[@]}" "$@")
 
       if [[ "$output" == iso ]]; then
+        timed "shim download" download_shim
         prepare_layers "$edition" base root desktop live mhwd live-initrd -- "${kernel_args[@]}" "$@"
       else
         # The layers up to desktop, shared with the ISO build of the edition
