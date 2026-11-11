@@ -27,4 +27,15 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 <type>(<scope>): <summary>
 ```
 
-where `<type>` is for example `feat`, `fix`, `docs`, `ci` or `style`, and `<scope>` names the part of the repository, for example `iso`, `layers` or `installer`. Keep the body to one line, or leave it out.
+where `<type>` is for example `feat`, `fix`, `docs`, `ci` or `style`. Keep the body to one line, or leave it out.
+
+The scope is required and comes from this list, several are separated by commas, for example `fix(iso,lima): ...`:
+
+| Kind    | Scopes                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------ |
+| output  | `distrobox`, `lima`, `vm`, `uki`, `iso`                                                    |
+| edition | each edition of `scripts/editions.sh`, for example `mokka` or `gnome`                      |
+| layer   | `layers` for several layers, or `base`, `root`, `desktop`, `live`, `mhwd`, `live-initrd`   |
+| area    | `build`, `secureboot`, `container`, `installer`, `openqa`, `scripts`, `ci`, `docs`, `deps` |
+
+`scripts/commit-scope.sh` checks it as a commit-msg hook of the development shell and again for the pushed commits in the `lint` job. Exempt are `ci: ...` for changes to the pipeline as a whole, `bump: ...` of `cz bump`, `Merge ...` and `Revert "..."`.

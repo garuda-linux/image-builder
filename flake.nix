@@ -38,6 +38,13 @@
           package = pkgs.prek;
           hooks = {
             commitizen.enable = true;
+            commit-scope = {
+              enable = true;
+              name = "Commit message scope";
+              entry = "${pkgs.bash}/bin/bash scripts/commit-scope.sh";
+              stages = [ "commit-msg" ];
+              language = "system";
+            };
             # The default files pattern only matches Dockerfile*
             hadolint = {
               enable = true;

@@ -93,6 +93,7 @@ lint:
     - when: on_success
   script:
     - scripts/lint.sh
+    - scripts/commit-scope.sh --ci
 
 flake-check:
   stage: lint
