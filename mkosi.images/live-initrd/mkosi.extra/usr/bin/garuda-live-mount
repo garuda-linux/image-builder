@@ -13,6 +13,9 @@
 #   persistence              keep the writable layer on the ext4 partition GARUDA_PERSIST
 #                            of the boot stick, created behind the image if missing
 #   persistence=any          also accept GARUDA_PERSIST on another disk
+#
+# The boot medium is the disk with the volume label, or the ISO file on a
+# Ventoy stick or another disk, see find_medium.
 
 set -e
 
@@ -94,6 +97,11 @@ create_persistence() {
     return 1
   fi
 
+  if [ "$file_boot" = yes ]; then
+    say "persistence needs the image written to the stick, not an ISO file on it"
+    return 1
+  fi
+
   if [ "$(blkid -p -s LABEL -o value "$disk" 2>/dev/null)" != "$label" ]; then
     say "persistence: $disk is not the boot stick of $label, not changing it"
     return 1
@@ -107,12 +115,166 @@ create_persistence() {
   udevadm settle
 }
 
-# The boot medium: the whole disk carries the El Torito volume label
-if ! wait_for 90 test -e "/dev/disk/by-label/$label"; then
-  say "no medium with the label $label found"
-  exit 1
-fi
-medium="$(readlink -f "/dev/disk/by-label/$label")"
+# Messages of the functions whose stdout is captured
+note() { say "$*" >&2; }
+
+# hex <file> <offset> <length>: the bytes as one hex string
+hex() {
+  od -A n -v -t x1 -j "$2" -N "$3" "$1" 2>/dev/null | tr -d ' \n'
+}
+
+# The ISO 9660 volume ID has no spaces (iso_label in lib/iso.sh), tr strips the padding
+has_label() {
+  [ "$(dd if="$1" bs=1 skip=32808 count=32 2>/dev/null | tr -d '\000 ')" = "$label" ]
+}
+
+# mount_ro <device> <dir>: read-only, without journal replay
+mount_ro() {
+  fstype="$(blkid -p -s TYPE -o value "$1" 2>/dev/null)"
+  case "$fstype" in
+    exfat | udf | vfat) options=ro ;;
+    ntfs) fstype=ntfs3 options=ro ;;
+    ext2 | ext3 | ext4) fstype=ext4 options=ro,noload ;;
+    xfs) options=ro,norecovery ;;
+    *) return 1 ;;
+  esac
+  mount -t "$fstype" -o "$options" "$1" "$2"
+}
+
+# The file system under the file stays mounted while the loop device uses it
+attach() {
+  has_label "$1" || return 1
+  loop="$(losetup -f -r -P --show "$1")" || return 1
+  if [ "$(blkid -p -s LABEL -o value "$loop" 2>/dev/null)" != "$label" ]; then
+    losetup -d "$loop"
+    return 1
+  fi
+  echo "$loop"
+}
+
+# Ventoy boots the ISO through a firmware CD drive that Linux does not see and
+# leaves its location in ventoy_os_param (VtoyTool/vtoytool.h of Ventoy).
+ventoy_var=/sys/firmware/efi/efivars/VentoyOsParam-77772020-2e77-6576-6e74-6f792e6e6574
+ventoy_failed=/run/garuda/ventoy-failed
+
+ventoy_image() {
+  [ -e "$ventoy_var" ] && [ ! -e "$ventoy_failed" ] || return 1
+
+  # VENTOY_GUID in memory order ("  www.ventoy.net"), then a byte sum of 0
+  [ "$(hex "$ventoy_var" 4 16)" = 20207777772e76656e746f792e6e6574 ] || return 1
+  sum=0
+  for b in $(od -A n -v -t u1 -j 4 -N 512 "$ventoy_var"); do
+    sum=$((sum + b))
+  done
+  [ $((sum % 256)) -eq 0 ] || return 1
+
+  # Struct offsets, +4 for the efivarfs attributes. Disk GUID (17) and
+  # signature (481) match bytes 0x180 and 0x1b8 of the Ventoy disk.
+  guid="$(hex "$ventoy_var" 21 16)"
+  sig="$(hex "$ventoy_var" 485 4)"
+  vdisk=""
+  for sys in /sys/block/*; do
+    name="${sys##*/}"
+    case "$name" in loop* | ram* | zram* | dm-* | sr*) continue ;; esac
+    if [ "$(hex "/dev/$name" 384 16)" = "$guid" ] && [ "$(hex "/dev/$name" 440 4)" = "$sig" ]; then
+      vdisk="$name"
+    fi
+  done
+
+  # The stick may not be there yet
+  [ -n "$vdisk" ] || return 1
+
+  # vtoy_disk_part_id at 41 (from 1), vtoy_img_path at 45
+  partn="$(od -A n -t u2 -j 45 -N 2 "$ventoy_var" | tr -d ' ')"
+  path="$(dd if="$ventoy_var" bs=1 skip=49 count=384 2>/dev/null | tr '\000' '\n' | head -n1)"
+  vpart=""
+  for sys in "/sys/block/$vdisk/$vdisk"*; do
+    if [ "$(cat "$sys/partition" 2>/dev/null)" = "$partn" ]; then
+      vpart="/dev/${sys##*/}"
+    fi
+  done
+
+  mkdir -p /run/garuda
+  : >"$ventoy_failed"
+  if [ -z "$vpart" ]; then
+    note "Ventoy: partition $partn of /dev/$vdisk not found"
+    return 1
+  fi
+
+  mkdir -p /run/garuda/image-fs
+  if ! mount_ro "$vpart" /run/garuda/image-fs; then
+    note "Ventoy: could not mount $vpart"
+    return 1
+  fi
+  if ! attach "/run/garuda/image-fs$path"; then
+    note "Ventoy: $path on $vpart is not the image $label"
+    umount /run/garuda/image-fs
+    return 1
+  fi
+  note "Ventoy: booting the image $path on $vpart"
+}
+
+# The disk and its partitions, for each USB stick and SD card
+removable_devices() {
+  lsblk -d -n -p -o NAME,RM,TRAN 2>/dev/null | while read -r sdisk rm tran; do
+    case "$sdisk" in
+      /dev/sr* | /dev/loop* | /dev/zram*) continue ;;
+      /dev/mmcblk*) ;;
+      *) [ "$rm" = 1 ] || [ "$tran" = usb ] || continue ;;
+    esac
+    lsblk -l -n -p -o NAME "$sdisk" 2>/dev/null
+  done
+}
+
+# For Ventoy memdisk mode, GRUB loopback and similar. Internal disks are left
+# alone. A file with the right label but other layers fails the verity check.
+search_image() {
+  mkdir -p /run/garuda/image-fs
+  for dev in $(removable_devices); do
+    grep -q "^$dev " /proc/mounts && continue
+    mount_ro "$dev" /run/garuda/image-fs 2>/dev/null || continue
+
+    loop="$(find /run/garuda/image-fs -maxdepth 3 -type f -iname '*.iso' 2>/dev/null | while IFS= read -r file; do
+      if attach "$file"; then
+        note "booting the image ${file#/run/garuda/image-fs} on $dev"
+        break
+      fi
+    done)"
+
+    if [ -n "$loop" ]; then
+      echo "$loop"
+      return 0
+    fi
+
+    umount /run/garuda/image-fs
+  done
+
+  return 1
+}
+
+# The search mounts file systems, so a written stick gets 10 s first
+find_medium() {
+  if [ -e "/dev/disk/by-label/$label" ]; then
+    readlink -f "/dev/disk/by-label/$label"
+    return 0
+  fi
+
+  ventoy_image && return 0
+
+  [ "$1" -ge 10 ] && [ $(($1 % 10)) -eq 0 ] && search_image
+}
+
+waited=0
+until medium="$(find_medium "$waited")"; do
+  if [ "$waited" -ge 90 ]; then
+    say "no medium with the label $label found, and no ISO file of it on a Ventoy or other removable disk"
+    exit 1
+  fi
+
+  sleep 1
+  udevadm settle
+  waited=$((waited + 1))
+done
 
 # The kernel does not read the GPT of a CD drive (2048-byte sectors). udev
 # notices that the boot disk then needs a loop device, and
@@ -120,7 +282,13 @@ medium="$(readlink -f "/dev/disk/by-label/$label")"
 # systemd), after systemd-dissect checked the image. The partitions of the ISO
 # are typed for that, see write_repart_definitions in lib/iso.sh.
 cd_boot=no
+file_boot=no
 case "$medium" in
+  /dev/loop*)
+    # The ISO file, attached by ventoy_image or search_image
+    file_boot=yes
+    disk="$medium"
+    ;;
   /dev/sr*)
     cd_boot=yes
     # The loop device systemd attached for the drive
@@ -255,7 +423,7 @@ for layer in $layers; do
   mount -t erofs -o ro "/dev/mapper/garuda-$layer" "/run/garuda/layers/$layer"
 done
 
-# Not on a CD: systemd's loop device keeps the drive in use
-if [ "$copied" = yes ] && [ "$persistent" = no ] && [ "$cd_boot" = no ]; then
+# Not on a CD or from an ISO file: the loop device keeps the drive in use
+if [ "$copied" = yes ] && [ "$persistent" = no ] && [ "$cd_boot" = no ] && [ "$file_boot" = no ]; then
   say "the boot medium can be removed"
 fi

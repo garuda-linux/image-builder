@@ -121,7 +121,7 @@ The ISO is a GPT disk image made by _systemd-repart_, as [KDE Linux](https://inv
 At boot:
 
 1. _systemd-boot_ shows the profiles of the UKI for 10 seconds and starts it with `garuda.label=<label>` and `garuda.verity=<layer>:<hash>,...`, where `<label>` is the El Torito volume label, for example `GARUDA_MOKKA_20261107`, and `<hash>` the verity root hash of each layer. There is no `root=`: the root file system comes from the initrd's own units.
-2. `garuda-live-mount.service` of the initrd (`mkosi.images/live-initrd/mkosi.extra/`) finds the boot disk by its label and the layer partitions on it by their names. The kernel does not read the GPT of a CD drive, which has 2048-byte sectors, so on a CD drive udev starts `systemd-loop@.service` of systemd, which attaches the drive to a loop device with 512-byte sectors and partition scan, and the initrd waits for that loop device.
+2. `garuda-live-mount.service` of the initrd (`mkosi.images/live-initrd/mkosi.extra/`) finds the boot disk by its label and the layer partitions on it by their names. The kernel does not read the GPT of a CD drive, which has 2048-byte sectors, so on a CD drive udev starts `systemd-loop@.service` of systemd, which attaches the drive to a loop device with 512-byte sectors and partition scan, and the initrd waits for that loop device. When no disk carries the label, the ISO is a file on another disk, see [ISO file boot](#iso-file-boot).
 3. It sets up the writable layer, in RAM or on the persistence partition, copies the layer partitions to RAM when `copytoram` is set, reads every layer once through dm-verity when `checksum` is set, opens each layer as a dm-verity device with its root hash and mounts it read-only under `/run/garuda/layers/<layer>`.
 4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `mhwd`, `desktop`, `root`, with the writable layer on top.
 5. `run-garuda-install.mount` mounts the `desktop` and `root` layers alone at `/run/garuda/install`. The installer copies the new system from there, so the live session and the driver repository do not end up on the installed system.
@@ -219,6 +219,18 @@ A signed build also puts the enrollment cert into the `root` layer at `/usr/shar
 
 > [!NOTE]
 > Installed systems build their UKIs on the machine, so the Garuda key cannot sign them, and their normal entries do not boot with Secure Boot on. The [generic UKIs](building.md#generic-uki) are the signed base for the rescue and Easy Anti-Cheat entries that do. Installed systems are planned to enroll the Garuda CA into the firmware `db` with _sbctl_ instead of the MOK list, so that chain starts at the firmware without _shim_.
+
+### ISO file boot
+
+Boot managers such as [Ventoy](https://www.ventoy.net) keep the ISO as a file on their own partition and start it through a virtual CD drive of the firmware, which Linux does not see. Ventoy usually adds a hook to the initrd of the ISO, which is not possible here: the initrd is part of the UKI, which is signed in a signed build. Instead, `garuda-live-mount` looks for the file itself. Within the 90 seconds it waits for the medium, it tries each second:
+
+1. the disk with the volume label, as written with _dd_ or on a CD drive,
+2. the EFI variable `VentoyOsParam` that Ventoy leaves for the booted system, with the disk, partition and path of the ISO file (`ventoy_os_param` in `VtoyTool/vtoytool.h` of Ventoy),
+3. from 10 seconds on and every 10 seconds, a search on USB sticks and SD cards: every file system, read-only, for `*.iso` files down to two directories deep. It covers Ventoy in memdisk mode, GRUB loopback and similar setups. Internal disks are not searched.
+
+The file system is mounted read-only at `/run/garuda/image-fs`, without journal replay, and the ISO file attached to a read-only loop device with partition scan. The file must carry the volume label, and the layers must match `garuda.verity=` as on a written stick, so an ISO file of another build does not boot. The file systems are those of Ventoy's data partition: exFAT, NTFS, ext4, XFS, UDF and FAT. Ventoy's own initrd hook maps the extents of the file with device-mapper from `/dev/mem` instead, which kernel lockdown blocks under Secure Boot.
+
+The file system stays mounted for the session, as the loop device holds the file. Persistence needs the ISO written to the stick, and copytoram does not free the stick.
 
 ### Persistence
 

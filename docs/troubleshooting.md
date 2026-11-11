@@ -87,7 +87,8 @@ In the menu, `e` edits the options of an entry, for example to add `copytoram`, 
 
 The initrd finds the boot disk by the label given in `garuda.label=` on the kernel command line, then the partitions `garuda-<layer>` and `garuda-<layer>-verity` on it. Check the output of `garuda-live-mount.service` in the journal of the VM:
 
-- "no medium with the label": the label on the command line must match the volume label of the ISO, which `blkid` shows for the whole disk, for example `/dev/sdb`, not a partition.
+- "no medium with the label": the label on the command line must match the volume label of the ISO, which `blkid` shows for the whole disk, for example `/dev/sdb`, not a partition. For an ISO file on a Ventoy or other stick, the file must be at most two directories deep on a USB stick or SD card, see [Architecture#ISO file boot](architecture.md#iso-file-boot).
+- "Ventoy: ...": the EFI variable of Ventoy was found, but its partition did not mount or its file is not this ISO. The search of removable disks runs anyway. `od -A x -t x1z /sys/firmware/efi/efivars/VentoyOsParam-*` in the emergency shell shows the variable, with the path of the file from offset `0x31`.
 - "the layer partitions are missing": `lsblk -o NAME,PARTLABEL` on the disk must list the layer partitions. On a CD drive, they appear on the loop device of `systemd-loop@.service`: `journalctl -b -u "systemd-loop@*"` shows why it failed, for example a `systemd-dissect` message about the partitions of the image.
 
 ### Boot stops with "the layer is damaged"
@@ -104,6 +105,7 @@ With the normal and persistence entries, which have no `checksum`, a damaged blo
 
 The boot log of `garuda-live-mount.service` says why, in one of these messages:
 
+- "persistence needs the image written to the stick": the ISO was booted as a file, for example from Ventoy. Write it to the stick with _dd_, or create an ext4 partition labelled `GARUDA_PERSIST` on another disk and boot with `persistence=any`.
 - "persistence needs a USB stick or disk": the ISO was booted from a CD drive. Create an ext4 partition labelled `GARUDA_PERSIST` on another disk and boot with `persistence=any`.
 - "is not the boot stick of": the initrd did not change the disk, because its volume label is not the label of this ISO.
 - "could not add the partition": _systemd-repart_ failed, most often because the USB stick has less than 1 GiB free behind the ISO. Its error is in the lines before.

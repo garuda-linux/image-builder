@@ -104,7 +104,7 @@ $ build --explain iso mokka
 
 ### Timings
 
-Every build ends with a table of its steps, also after a failure: the keyring fetch, the package check, each mkosi image (from the `‣ [<image>]` prefix of mkosi's log lines), the post-build steps and, for an ISO, each erofs image with its compression. mkosi's output goes through a pipe for this, so it has no colors.
+Every build ends with a table of its steps, also after a failure: the keyring fetch, the package check, each mkosi image (from the `‣ [<image>]` prefix of mkosi's log lines), the post-build steps and, for an ISO, each erofs image with its compression. A build stopped with Ctrl+C or `SIGTERM` prints no table. mkosi's output goes through a pipe for this, so it has no colors.
 
 ### Cleaning up
 

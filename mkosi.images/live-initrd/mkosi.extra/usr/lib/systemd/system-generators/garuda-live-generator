@@ -1,6 +1,7 @@
 #!/bin/sh
 # The layers come from garuda-live-mount.service, which finds the boot medium
-# by its label, so CD drives and USB sticks work the same. The command line has
+# by its label (or the ISO file on a Ventoy or other stick), so CD drives and
+# USB sticks work the same. The command line has
 # no root=, so /sysroot comes from here. The mounts stay in /run after
 # switch-root for run-garuda-install.mount.
 

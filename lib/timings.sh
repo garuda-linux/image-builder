@@ -35,16 +35,21 @@ mkosi_image_timings() {
   return 0
 }
 
+# An abort prints no table, a failure still does
 timings_start() {
   mkdir -p "$OUTPUT_DIR"
   : >"$TIMINGS_FILE"
+
+  TIMINGS_ABORTED=false
   trap timings_print EXIT
+  trap 'TIMINGS_ABORTED=true; exit 130' INT
+  trap 'TIMINGS_ABORTED=true; exit 143' TERM
 }
 
 timings_print() {
   local label seconds
 
-  [[ -s "$TIMINGS_FILE" ]] || return 0
+  [[ "$TIMINGS_ABORTED" == false && -s "$TIMINGS_FILE" ]] || return 0
   printf '\033[1;32m==>\033[0m Timings\n'
 
   while IFS=$'\t' read -r label seconds; do
