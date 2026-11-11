@@ -60,6 +60,9 @@ iso:{edition}:
     - if: $CI_COMMIT_REF_PROTECTED != "true"
       when: never
     - when: on_success
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   variables:
     EDITION: {edition}
     ISO_COMPRESSION: {compression}
@@ -91,6 +94,7 @@ iso:{edition}:
       - mkosi.output/garuda-{edition}.iso.manifest.changes
       - mkosi.output/garuda-{edition}.iso.spdx.json
       - mkosi.output/garuda-{edition}-*.iso.sha256
+      - mkosi.output/garuda-{edition}-*.iso.sha256.sigstore.json
     expire_in: 1 month
 """
 

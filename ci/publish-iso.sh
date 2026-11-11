@@ -5,6 +5,7 @@
 #   iso.builds.garudalinux.org that the runner mounts. <kind> is release for a
 #   date tag (YYYYMMDD) and latest for the default branch. Each kind keeps one
 #   build: a new upload replaces the whole directory.
+#   The checksum is signed with cosign in keyless mode, see docs/ci.md.
 
 set -eu
 
@@ -17,8 +18,10 @@ if [ -n "${CI_COMMIT_TAG:-}" ]; then
     exit 0
   fi
   kind=release
+  ref="refs/tags/$CI_COMMIT_TAG"
 elif [ -n "${CI_COMMIT_BRANCH:-}" ] && [ "$CI_COMMIT_BRANCH" = "${CI_DEFAULT_BRANCH:-}" ]; then
   kind=latest
+  ref="refs/heads/$CI_COMMIT_BRANCH"
 else
   echo "Not the default branch or a tag, the ISO is not published"
   exit 0
@@ -39,13 +42,34 @@ for file in "$iso" "$iso.sha256" "mkosi.output/garuda-$edition.iso.manifest" "mk
   }
 done
 
+# The certificate names the top-level pipeline definition (ci_config_ref_uri of
+# the ID token), also for this child pipeline job
+[ -n "${SIGSTORE_ID_TOKEN:-}" ] || {
+  echo "SIGSTORE_ID_TOKEN is not set, see id_tokens in ci/iso_pipeline.py" >&2
+  exit 1
+}
+bundle="$iso.sha256.sigstore.json"
+attempt=1
+until cosign sign-blob --yes --identity-token "$SIGSTORE_ID_TOKEN" --bundle "$bundle" "$iso.sha256"; do
+  if [ "$attempt" -ge 5 ]; then
+    echo "Signing $name.sha256 failed 5 times, the ISO is not published" >&2
+    exit 1
+  fi
+  echo "Signing failed (attempt $attempt of 5), retrying in 30 seconds"
+  attempt=$((attempt + 1))
+  sleep 30
+done
+cosign verify-blob --bundle "$bundle" \
+  --certificate-identity "$CI_PROJECT_URL//.gitlab-ci.yml@$ref" \
+  --certificate-oidc-issuer "$CI_SERVER_URL" "$iso.sha256"
+
 # Uploaded next to the old build, then swapped, so the old one stays complete
 # until the new one is available.
 dir="$dest/$edition/$kind"
 tmp="$dest/$edition/.$kind.new"
 rm -rf "$tmp"
 mkdir -p "$tmp"
-rsync --times --chmod=D755,F644 "$iso" "$iso.sha256" "$tmp/"
+rsync --times --chmod=D755,F644 "$iso" "$iso.sha256" "$bundle" "$tmp/"
 rsync --times --chmod=F644 "mkosi.output/garuda-$edition.iso.manifest" "$tmp/$name.manifest"
 rsync --times --chmod=F644 "mkosi.output/garuda-$edition.iso.spdx.json" "$tmp/$name.spdx.json"
 rm -rf "$dir"

@@ -57,9 +57,9 @@ check_secureboot() {
 check_secureboot_certs() {
   sb_enabled || return 0
 
-  if [[ -n "$SB_CA_CERT" ]]; then
-    openssl verify -CAfile "$SB_CA_CERT" "$SB_CERT" >/dev/null 2>&1 ||
-      die "SB_CERT $SB_CERT is not issued by SB_CA_CERT $SB_CA_CERT"
+  local err
+  if [[ -n "$SB_CA_CERT" ]] && ! err="$(openssl verify -CAfile "$SB_CA_CERT" "$SB_CERT" 2>&1)"; then
+    die "SB_CERT $SB_CERT is not issued by SB_CA_CERT $SB_CA_CERT: ${err//$'\n'/ }"
   fi
 
   if ! sb_is_uri; then

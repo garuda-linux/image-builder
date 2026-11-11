@@ -190,14 +190,26 @@ Use `--type spdxjson` for the SBOM. For the job artifacts, GitLab writes its own
 
 ### ISO artifacts
 
-The ISO jobs keep `garuda-<edition>.iso.manifest`, its `.changes` file, the SPDX SBOM and the `.sha256` checksum as artifacts, where `<edition>` is the edition name. The ISO itself, about 5 GB, exceeds the artifact size limit.
+The ISO jobs keep `garuda-<edition>.iso.manifest`, its `.changes` file, the SPDX SBOM, the `.sha256` checksum and its signature as artifacts, where `<edition>` is the edition name. The ISO itself, about 5 GB, exceeds the artifact size limit.
 
-`ci/publish-iso.sh` copies the ISO, its checksum, manifest and SBOM with _rsync_ to `https://iso.builds.garudalinux.org/iso/image-builder/<edition>/<kind>/`, with the versioned ISO name for all four files:
+`ci/publish-iso.sh` copies the ISO, its checksum, the signature of the checksum, manifest and SBOM with _rsync_ to `https://iso.builds.garudalinux.org/iso/image-builder/<edition>/<kind>/`, with the versioned ISO name for all five files:
 
 | `<kind>`  | Pipeline           | Kept                   |
 | --------- | ------------------ | ---------------------- |
 | `latest`  | the default branch | until the next push    |
 | `release` | a date tag         | until the next release |
+
+Before the upload, the script signs the `.sha256` file with cosign in keyless mode, as the distrobox image (see [Signature](#signature)), and writes the Sigstore bundle `<iso>.sha256.sigstore.json`. It tries five times, 30 seconds apart, then fails without publishing, so no unsigned ISO goes out. It verifies the bundle before the upload. The job runs in the ISO child pipeline, but the certificate names the top-level `.gitlab-ci.yml`, which the `ci_config_ref_uri` claim of the job token refers to. To verify a release ISO, with `<date>` its tag:
+
+```console
+$ cosign verify-blob --bundle garuda-mokka-linux-garuda-<date>.iso.sha256.sigstore.json \
+    --certificate-identity "https://gitlab.com/garuda-linux/tools/image-builder//.gitlab-ci.yml@refs/tags/<date>" \
+    --certificate-oidc-issuer https://gitlab.com \
+    garuda-mokka-linux-garuda-<date>.iso.sha256
+$ sha256sum -c garuda-mokka-linux-garuda-<date>.iso.sha256
+```
+
+A latest ISO has `@refs/heads/<default_branch>` instead.
 
 Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. The ISO stays on the runner for two days as well, in the shared state of its pipeline.
 
