@@ -1,6 +1,37 @@
 # shellcheck shell=bash
 
 readonly BUILDER_IMAGE="localhost/garuda-image-builder:latest"
+readonly BUILDER_LABEL="org.garudalinux.image-builder.containerfile"
+
+containerfile_hash() {
+  sha256sum ci/Containerfile | cut -d' ' -f1
+}
+
+builder_outdated() {
+  local built
+  built="$(podman image inspect --format "{{ index .Labels \"$BUILDER_LABEL\" }}" "$BUILDER_IMAGE")"
+  [[ "$built" != "$(containerfile_hash)" ]]
+}
+
+builder_wants_update() {
+  case "${BUILDER_UPDATE:=ask}" in
+    no) return 1 ;;
+    yes | ask) ;;
+    *) die "BUILDER_UPDATE must be ask, yes or no, not $BUILDER_UPDATE" ;;
+  esac
+
+  builder_outdated || return 1
+  [[ "$BUILDER_UPDATE" == yes ]] && return 0
+
+  if [[ ! -t 0 ]]; then
+    printf '\033[1;33m==> WARNING:\033[0m %s\n' "ci/Containerfile changed since $BUILDER_IMAGE was built, using it anyway (BUILDER_UPDATE=yes or --rebuild-builder updates it)" >&2
+    return 1
+  fi
+
+  local answer
+  read -rp "ci/Containerfile changed since $BUILDER_IMAGE was built. Rebuild it now? [y/N] " answer </dev/tty
+  [[ "$answer" == [yY]* ]]
+}
 
 # /dev is mounted so the loop partitions of the Lima disk appear in the container.
 run_in_container() {
@@ -12,9 +43,9 @@ run_in_container() {
   export TMPDIR="$PWD/mkosi.cache/tmp"
   mkdir -p "$TMPDIR"
 
-  if [[ "$rebuild" == true ]] || ! podman image exists "$BUILDER_IMAGE"; then
+  if [[ "$rebuild" == true ]] || ! podman image exists "$BUILDER_IMAGE" || builder_wants_update; then
     log "Building the builder image $BUILDER_IMAGE"
-    podman build -t "$BUILDER_IMAGE" -f ci/Containerfile ci
+    podman build -t "$BUILDER_IMAGE" --label "$BUILDER_LABEL=$(containerfile_hash)" -f ci/Containerfile ci
   fi
 
   local podman_args=(

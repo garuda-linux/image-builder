@@ -333,6 +333,16 @@ The `--container` option builds the `ci/Containerfile` image with _podman_ if it
 # ./build.sh --container iso mokka
 ```
 
+The image carries the SHA-256 hash of the `ci/Containerfile` it was built from as the label `org.garudalinux.image-builder.containerfile`. When the file changed since, for example after a `git pull`, the `BUILDER_UPDATE` environment variable decides what happens before the build:
+
+| Value           | Effect                                                                      |
+| --------------- | --------------------------------------------------------------------------- |
+| `ask` (default) | asks whether to rebuild the image, without a terminal it warns and keeps it |
+| `yes`           | rebuilds the image without asking                                           |
+| `no`            | keeps the image without checking                                            |
+
+An image from before the label counts as changed. `--rebuild-builder` always rebuilds. The `build` command of the development shell passes `BUILDER_UPDATE` through _sudo_.
+
 > [!NOTE]
 > On NixOS, mkosi cannot use the host tools. It looks for them in `/usr/bin`, and the NixOS _pacman-key_ only reads keyrings from its own store path.
 

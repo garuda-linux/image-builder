@@ -31,6 +31,9 @@
 #                    signs the ISO boot chain and the generic UKI
 #   SB_CA_CERT       PEM cert of the CA that issued SB_CERT, the cert that
 #                    machines enroll (optional, default SB_CERT)
+#   BUILDER_UPDATE   with --container, when ci/Containerfile changed since the
+#                    builder image was built: ask (default, warns without a
+#                    terminal), yes (rebuild) or no (do not check)
 #
 # Needs root (mkosi, loop devices, mounts).
 
