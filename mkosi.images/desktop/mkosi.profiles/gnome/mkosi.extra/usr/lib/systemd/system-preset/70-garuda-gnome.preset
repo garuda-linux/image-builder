@@ -5,5 +5,6 @@ enable ModemManager.service
 enable NetworkManager.service
 enable systemd-timesyncd.service
 enable systemd-oomd.service
-enable power-profiles-daemon.service
+enable tuned.service
+enable tuned-ppd.service
 enable gdm.service
