@@ -2,12 +2,12 @@
 # Builds packages of a pkgbuilds repository with cpb into mkosi.packages/.
 #
 # Usage:
-#   local-pkg build [--pkgbuilds <dir>] <pkgbase>...
-#   local-pkg build [--pkgbuilds <dir>] --src <checkout> [--dir <name>] <pkgbase>
+#   build pkg build [--pkgbuilds <dir>] <pkgbase>...
+#   build pkg build [--pkgbuilds <dir>] --src <checkout> [--dir <name>] <pkgbase>
 #     build from a local checkout, --dir sets the extracted source directory
-#   local-pkg list
-#   local-pkg rm <pkgname>...
-#   local-pkg clean
+#   build pkg list
+#   build pkg rm <pkgname>...
+#   build pkg clean
 #
 # <dir> defaults to $GARUDA_PKGBUILDS, else ../pkgbuilds.
 
