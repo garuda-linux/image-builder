@@ -3,7 +3,8 @@
 #   Links mkosi.output, mkosi.cache and mkosi.workspace to /cache/image-builder/,
 #   shared by all pipelines. Jobs run one at a time (resource_group build-host).
 #   The tools tree is /cache/image-builder-tools/, replaced when its key changes.
-#   prune removes final images, uninstalled packages and older release caches.
+#   prune removes final images, uninstalled packages, older release caches and
+#   publish stages older than a day.
 
 set -eu
 
@@ -30,6 +31,7 @@ if [ "${1:-}" = prune ]; then
   done
 
   rm -f "$installed"
+  find /cache/publish -mindepth 2 -maxdepth 2 -type d -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
 
   # <distribution>~<release>~<arch>~<image>: keep the newest release
   newest="$(find "$base/mkosi.cache" -mindepth 1 -maxdepth 1 -name '*~*.cache' -printf '%T@ %p\n' 2>/dev/null |

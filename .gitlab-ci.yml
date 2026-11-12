@@ -1,3 +1,28 @@
+spec:
+  inputs:
+    editions:
+      description: ISOs to build, only these and nothing else. Empty builds what the pipeline would build anyway
+      type: array
+      default: []
+      # all, then scripts/editions.sh in its order, checked by scripts/lint.sh
+      options:
+        - all
+        - cinnamon
+        - cosmic
+        - dr460nized-gaming
+        - dr460nized
+        - gnome
+        - hyprland
+        - i3
+        - kde-lite
+        - mokka
+        - sway
+        - xfce
+    iso_compression:
+      description: Compression of the ISOs, max for a release
+      default: balanced
+      options: [balanced, max]
+---
 stages:
   - builder
   - lint
@@ -9,43 +34,61 @@ workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      auto_cancel:
-        on_new_commit: none
     - when: always
 
 variables:
   BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
   OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
   BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+  # Read by the rules below and ci/iso_pipeline.py. The space makes GitLab
+  # insert the array as text, a variable cannot hold an array
+  BUILD_EDITIONS: " $[[ inputs.editions ]]"
+  # A pipeline variable ISO_COMPRESSION, as older schedules set it, still wins
+  ISO_COMPRESSION: $[[ inputs.iso_compression ]]
 
+# ISOs use stamps instead, see ci/iso_pipeline.py
 .paths:
   shared: &shared
     - mkosi.conf
     - mkosi.conf.d/**/*
     - mkosi.sandbox/**/*
     - mkosi.images/base/**/*
-    - build.sh
-    - lib/**/*
     - mkosi.shared/**/*
+    - build.sh
+    - lib/timings.sh
+    - lib/chaotic.sh
+    - lib/layers.sh
+    - lib/secureboot.sh
     - scripts/boot-check.sh
-    - scripts/editions.sh
     - scripts/sbom.py
-    - ci/**/*
+    - ci/Containerfile
+    - ci/shared-state.sh
+    - ci/package-changes.sh
     - .gitlab-ci.yml
   root: &root
     - mkosi.images/root/**/*
 
+# Publishing jobs set interruptible: false in every rule of the default branch
 .rules:
   renovate: &no_renovate
     if: $RENOVATE == "true"
     when: never
   schedule: &schedule
     if: $CI_PIPELINE_SOURCE == "schedule"
+    interruptible: false
   web: &web
     if: $CI_PIPELINE_SOURCE == "web"
+    interruptible: false
   protected: &protected_only
     if: $CI_COMMIT_REF_PROTECTED != "true"
+    when: never
+  # changes: is always true outside push pipelines, so trigger API pipelines
+  # and runs with editions selected must skip the other outputs explicitly
+  api: &no_api
+    if: $CI_PIPELINE_SOURCE == "trigger" || $CI_PIPELINE_SOURCE == "pipeline"
+    when: never
+  editions: &no_editions
+    if: $BUILD_EDITIONS =~ /[a-z]/
     when: never
 
 builder:
@@ -54,6 +97,8 @@ builder:
   tags: [dind]
   rules:
     - *no_renovate
+    - *no_api
+    - *no_editions
     - *schedule
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: [ci/Containerfile]
@@ -71,6 +116,8 @@ openqa-image:
   tags: [dind]
   rules:
     - *no_renovate
+    - *no_api
+    - *no_editions
     - if: $OPENQA_DISTRI_URL == null || $OPENQA_DISTRI_URL == ""
       when: never
     - *schedule
@@ -90,6 +137,9 @@ lint:
   interruptible: true
   rules:
     - *no_renovate
+    # The distrobox, Lima and UKI jobs of the default branch wait for it
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      interruptible: false
     - when: on_success
   script:
     - scripts/lint.sh
@@ -102,6 +152,8 @@ flake-check:
   interruptible: true
   rules:
     - *no_renovate
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      interruptible: false
     - when: on_success
   before_script:
     - . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
@@ -127,9 +179,9 @@ iso:generate:
   interruptible: true
   rules:
     - *no_renovate
+    - *schedule
+    - *web
     - when: on_success
-  variables:
-    GIT_DEPTH: "50"
   script:
     - ci/iso_pipeline.py >iso-pipeline.yml
   artifacts:
@@ -178,13 +230,18 @@ distrobox:
   rules:
     - *protected_only
     - *no_renovate
+    - *no_api
+    - *no_editions
     - *schedule
     - *web
     - if: $CI_COMMIT_MESSAGE =~ /\[build (all|distrobox)\]/
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *shared
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [mkosi.profiles/distrobox/**/*]
+      changes: [mkosi.profiles/distrobox/**/*, ci/provenance.py]
+      interruptible: false
   script:
     - ./build.sh distrobox
     - scripts/boot-check.sh mkosi.output/garuda-distrobox
@@ -235,15 +292,21 @@ lima:
   rules:
     - *protected_only
     - *no_renovate
+    - *no_api
+    - *no_editions
     - *schedule
     - *web
     - if: $CI_COMMIT_MESSAGE =~ /\[build (all|lima)\]/
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *shared
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *root
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [mkosi.profiles/lima/**/*]
+      changes: [mkosi.profiles/lima/**/*, lib/lima.sh, lib/disk.sh]
+      interruptible: false
   script:
     - ./build.sh lima
     - scripts/boot-check.sh mkosi.output/root
@@ -276,15 +339,21 @@ uki:
   rules:
     - *protected_only
     - *no_renovate
+    - *no_api
+    - *no_editions
     - *schedule
     - *web
     - if: $CI_COMMIT_MESSAGE =~ /\[build (all|uki)\]/
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *shared
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *root
+      interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [mkosi.profiles/uki/**/*]
+      changes: [mkosi.profiles/uki/**/*, lib/uki.sh]
+      interruptible: false
   script:
     - ./build.sh uki
     - |

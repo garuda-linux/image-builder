@@ -1,6 +1,7 @@
 #!/bin/sh
-# Usage: ci/publish-iso.sh <edition>
-#   Publishes the ISO of <edition> with its checksum, manifest and SBOM to
+# Usage: ci/publish-iso.sh <edition> [<dir>]
+#   Publishes the ISO of <edition> in <dir> (default mkosi.output) with its
+#   checksum, manifest, SBOM and stamp (see ci/iso_pipeline.py) to
 #   /publish/iso/<edition>/<kind>/, the image-builder tree of
 #   iso.builds.garudalinux.org that the runner mounts. <kind> is release for a
 #   date tag (YYYYMMDD) and latest for the default branch. Each kind keeps one
@@ -9,7 +10,8 @@
 
 set -eu
 
-edition="${1:?usage: ci/publish-iso.sh <edition>}"
+edition="${1:?usage: ci/publish-iso.sh <edition> [<dir>]}"
+src="${2:-mkosi.output}"
 dest=/publish/iso
 
 if [ -n "${CI_COMMIT_TAG:-}" ]; then
@@ -33,9 +35,9 @@ fi
   exit 1
 }
 
-iso="$(readlink -f "mkosi.output/garuda-$edition.iso")"
+iso="$(readlink -f "$src/garuda-$edition.iso")"
 name="${iso##*/}"
-for file in "$iso" "$iso.sha256" "mkosi.output/garuda-$edition.iso.manifest" "mkosi.output/garuda-$edition.iso.spdx.json"; do
+for file in "$iso" "$iso.sha256" "$src/garuda-$edition.iso.manifest" "$src/garuda-$edition.iso.spdx.json"; do
   [ -f "$file" ] || {
     echo "$file is missing" >&2
     exit 1
@@ -70,8 +72,12 @@ tmp="$dest/$edition/.$kind.new"
 rm -rf "$tmp"
 mkdir -p "$tmp"
 rsync --times --chmod=D755,F644 "$iso" "$iso.sha256" "$bundle" "$tmp/"
-rsync --times --chmod=F644 "mkosi.output/garuda-$edition.iso.manifest" "$tmp/$name.manifest"
-rsync --times --chmod=F644 "mkosi.output/garuda-$edition.iso.spdx.json" "$tmp/$name.spdx.json"
+rsync --times --chmod=F644 "$src/garuda-$edition.iso.manifest" "$tmp/$name.manifest"
+rsync --times --chmod=F644 "$src/garuda-$edition.iso.spdx.json" "$tmp/$name.spdx.json"
+# Fixed name, fetched by ci/iso_pipeline.py
+if [ -f "$src/garuda-$edition.stamp" ]; then
+  rsync --times --chmod=F644 "$src/garuda-$edition.stamp" "$tmp/"
+fi
 rm -rf "$dir"
 mv "$tmp" "$dir"
 

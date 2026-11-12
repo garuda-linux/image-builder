@@ -1,39 +1,33 @@
 #!/usr/bin/env python3
-"""Writes the ISO child pipeline to stdout. Build triggers: docs/ci.md."""
+"""Writes the ISO child pipeline to stdout. Build triggers: docs/ci.md.
 
+ci/iso_pipeline.py --stamp <edition> prints the stamp of an edition ISO."""
+
+import hashlib
 import os
 import re
 import subprocess
 import sys
-from fnmatch import fnmatchcase
+import urllib.request
 
-# Shell globs, where * also matches /. A change to any of them rebuilds every edition.
-# Keep in sync with the shared anchor under .paths in .gitlab-ci.yml, see docs/ci.md
-SHARED = [
+STAMP_PATHS = [
     "mkosi.conf",
-    "mkosi.conf.d/*",
-    "mkosi.sandbox/*",
-    "mkosi.images/base/*",
-    "mkosi.images/root/*",
-    "mkosi.images/mhwd/*",
-    "mkosi.images/live-initrd/*",
-    "mkosi.profiles/iso/*",
+    "mkosi.conf.d",
+    "mkosi.sandbox",
+    "mkosi.shared",
+    "mkosi.profiles/iso",
+    "mkosi.images",
     "build.sh",
-    "lib/*",
-    "mkosi.shared/*",
+    "lib/timings.sh",
+    "lib/chaotic.sh",
+    "lib/layers.sh",
+    "lib/secureboot.sh",
+    "lib/iso.sh",
     "scripts/sbom.py",
-    ".gitlab-ci.yml",
-    "ci/*",
-    "scripts/editions.sh",
-    "scripts/boot-check.sh",
+    "ci/Containerfile",
 ]
-for layer in ("desktop", "live"):
-    SHARED += [
-        f"mkosi.images/{layer}/mkosi.conf",
-        f"mkosi.images/{layer}/mkosi.conf.d/*",
-        f"mkosi.images/{layer}/mkosi.extra*/*",  # also the shared trees such as mkosi.extra.plasma
-        f"mkosi.images/{layer}/mkosi.postinst.chroot",
-    ]
+
+PUBLISHED = "https://iso.builds.garudalinux.org/iso/image-builder/{edition}/latest/garuda-{edition}.stamp"
 
 NO_ISO = """\
 no-iso:
@@ -50,7 +44,8 @@ iso:{edition}:
   tags: [nix-privileged]
   # Shared with .build in .gitlab-ci.yml: one build at a time on the build host
   resource_group: build-host
-  interruptible: true
+  # true in push pipelines only, a push must not cancel a schedule or release build
+  interruptible: {interruptible}
   timeout: 3h
   retry:
     max: 1
@@ -60,9 +55,6 @@ iso:{edition}:
     - if: $CI_COMMIT_REF_PROTECTED != "true"
       when: never
     - when: on_success
-  id_tokens:
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   variables:
     EDITION: {edition}
     ISO_COMPRESSION: {compression}
@@ -73,7 +65,16 @@ iso:{edition}:
     - ci/shared-state.sh
     - ./build.sh iso "$EDITION"
     - ci/package-changes.sh "iso:$EDITION" "mkosi.output/garuda-$EDITION.iso.manifest"
-    - ci/publish-iso.sh "$EDITION"
+    # For publish:<edition>, after_script prunes the ISO from mkosi.output
+    - |
+      stage="/cache/publish/$EDITION/$CI_PIPELINE_ID"
+      iso="$(readlink -f "mkosi.output/garuda-$EDITION.iso")"
+      rm -rf "$stage"
+      mkdir -p "$stage"
+      cp --reflink=auto "$iso" "$iso.sha256" "mkosi.output/garuda-$EDITION.iso.manifest" \\
+        "mkosi.output/garuda-$EDITION.iso.spdx.json" "$stage/"
+      ln -s "${{iso##*/}}" "$stage/garuda-$EDITION.iso"
+      ci/iso_pipeline.py --stamp "$EDITION" >"$stage/garuda-$EDITION.stamp"
     # For openqa:<edition>. The rename keeps the ISO of a running test intact.
     - |
       if [ -n "${{OPENQA_DISTRI_URL:-}}" ]; then
@@ -93,6 +94,31 @@ iso:{edition}:
       - mkosi.output/garuda-{edition}.iso.manifest.changes
       - mkosi.output/garuda-{edition}.iso.spdx.json
       - mkosi.output/garuda-{edition}-*.iso.sha256
+    expire_in: 1 month
+
+publish:{edition}:
+  stage: publish
+  image: $BUILDER_IMAGE
+  tags: [nix-privileged] # /cache and /publish
+  needs: ["iso:{edition}"]
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED != "true"
+      when: never
+    - when: on_success
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    EDITION: {edition}
+  script:
+    - stage="/cache/publish/$EDITION/$CI_PIPELINE_ID"
+    - ci/publish-iso.sh "$EDITION" "$stage"
+    - mkdir -p mkosi.output
+    - find "$stage" -name '*.sigstore.json' -exec cp {{}} mkosi.output/ \\;
+  after_script:
+    - rm -rf "/cache/publish/$EDITION/$CI_PIPELINE_ID"
+  artifacts:
+    paths:
       - mkosi.output/garuda-{edition}-*.iso.sha256.sigstore.json
     expire_in: 1 month
 """
@@ -157,17 +183,51 @@ def run(*args):
     return subprocess.run(args, stdout=subprocess.PIPE, text=True, check=True).stdout.splitlines()
 
 
-def has_commit(sha):
-    if re.fullmatch(r"0+", sha):
-        return False
-    probe = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], stderr=subprocess.DEVNULL)
-    return probe.returncode == 0
+def in_stamp(path, edition):
+    parts = path.split("/")
+    if "mkosi.profiles" in parts[:-1] and parts[0] == "mkosi.images":
+        return parts[parts.index("mkosi.profiles") + 1] == edition
+    return True
+
+
+def stamp(edition):
+    entries = run("git", "ls-files", "--stage", "--", *STAMP_PATHS)
+    digest = hashlib.sha256(f"{edition}\n".encode())
+    for entry in entries:
+        if in_stamp(entry.split("\t", 1)[1], edition):
+            digest.update(f"{entry}\n".encode())
+    return digest.hexdigest()
+
+
+def published_stamp(edition):
+    try:
+        with urllib.request.urlopen(PUBLISHED.format(edition=edition), timeout=30) as response:
+            return response.read().decode().strip()
+    except OSError as error:
+        # Not published yet, or the mirror is down: build rather than skip
+        print(f"No published stamp for {edition}: {error}", file=sys.stderr)
+        return None
+
+
+def requested(editions, value):
+    # The string form of the editions array input: names in any brackets and quotes
+    names = re.findall(r"[a-z0-9-]+", value)
+    if "all" in names:
+        return editions
+    unknown = sorted(set(names) - set(editions))
+    if unknown:
+        sys.exit(f"Unknown editions in BUILD_EDITIONS: {' '.join(unknown)}")
+    return sorted(set(names))
 
 
 def select(editions, env):
     # The ISO jobs run as root on the build host: nothing to build on unprotected refs
     if env.get("CI_COMMIT_REF_PROTECTED", "") != "true":
         return []
+
+    chosen = requested(editions, env.get("BUILD_EDITIONS", ""))
+    if chosen or env.get("CI_PIPELINE_SOURCE", "") in ("trigger", "pipeline"):
+        return chosen
 
     message = env.get("CI_COMMIT_MESSAGE", "")
     all_editions = env.get("CI_PIPELINE_SOURCE", "") in ("schedule", "web")
@@ -182,17 +242,10 @@ def select(editions, env):
     if not all_editions:
         selected += [e for e in editions if f"[build {e}]" in message]
 
+    # Against what is published, so the changes of a cancelled pipeline are not lost
     branch = env.get("CI_COMMIT_BRANCH", "")
     if not all_editions and branch and branch == env.get("CI_DEFAULT_BRANCH", ""):
-        before = env.get("CI_COMMIT_BEFORE_SHA") or "0" * 40
-        if not has_commit(before):
-            # No previous commit to diff against
-            all_editions = True
-        else:
-            for path in run("git", "diff", "--name-only", before, env.get("CI_COMMIT_SHA") or "HEAD"):
-                if any(fnmatchcase(path, pattern) for pattern in SHARED):
-                    all_editions = True
-                selected += [e for e in editions if fnmatchcase(path, f"mkosi.images/*/mkosi.profiles/{e}/*")]
+        selected += [e for e in editions if stamp(e) != published_stamp(e)]
 
     if all_editions:
         selected = editions
@@ -202,10 +255,15 @@ def select(editions, env):
 def main():
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], stdout=subprocess.PIPE, text=True, check=True)
     os.chdir(top.stdout.rstrip("\n"))
+
+    if sys.argv[1:2] == ["--stamp"]:
+        print(stamp(sys.argv[2]))
+        return
+
     selected = select(run("scripts/editions.sh"), os.environ)
 
     print("# Generated by ci/iso_pipeline.py")
-    print("stages: [build, test]")
+    print("stages: [build, publish, test]")
     sys.stdout.flush()
 
     if not selected:
@@ -219,13 +277,14 @@ def main():
     # balanced while CI is young. A release pipeline (web run or schedule) sets
     # ISO_COMPRESSION=max as a pipeline variable, iso:generate sees it here.
     compression = os.environ.get("ISO_COMPRESSION") or "balanced"
+    interruptible = "true" if os.environ.get("CI_PIPELINE_SOURCE") == "push" else "false"
     print(
         f"Editions to build: {' '.join(selected)}, openQA: {'yes' if openqa else 'no'}, compression: {compression}",
         file=sys.stderr,
     )
 
     for edition in selected:
-        sys.stdout.write(ISO_JOB.format(edition=edition, compression=compression))
+        sys.stdout.write(ISO_JOB.format(edition=edition, compression=compression, interruptible=interruptible))
         if openqa:
             sys.stdout.write(OPENQA_JOB.format(edition=edition))
 

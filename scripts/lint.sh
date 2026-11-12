@@ -78,6 +78,16 @@ done
 
 editions_out="$(scripts/editions.sh)" || fail "edition list"
 mapfile -t editions <<<"$editions_out"
+
+# The editions input of .gitlab-ci.yml lists them for the Run pipeline form
+input_options="$(sed -n '/^    editions:$/,/^    [a-z_]*:$/s/^        - //p' .gitlab-ci.yml | paste -sd' ' -)"
+listed="all ${editions[*]}"
+if [[ "$input_options" == "$listed" ]]; then ok "editions input"; else
+  fail "editions input"
+  echo "          .gitlab-ci.yml: ${input_options:-none}"
+  echo "          scripts/editions.sh: $listed"
+fi
+
 for profiles in distrobox lima uki "${editions[@]/#/iso,}" "${editions[@]/#/vm,}"; do
   if errors="$(mkosi --profile "$profiles" "${all_layers[@]}" summary 2>&1 >/dev/null)"; then
     ok "mkosi --profile $profiles"

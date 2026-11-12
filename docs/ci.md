@@ -20,12 +20,12 @@ Protect the default branch under _Settings > Repository > Protected branches_ an
 
 ### Shared paths
 
-A change to a shared file rebuilds every output that depends on it. The shared files are listed twice:
+The files each output is built from are listed twice:
 
-- for the distrobox and Lima jobs, as YAML anchors under `.paths` at the top of `.gitlab-ci.yml`,
-- for the ISO jobs, in the `shared` list of `ci/iso_pipeline.py`.
+- for the distrobox, Lima and UKI jobs, as the `.paths` anchors at the top of `.gitlab-ci.yml` plus the files in each job's own `changes:` rule,
+- for the ISO jobs, in `STAMP_PATHS` of `ci/iso_pipeline.py`, see [ISO stamps](#iso-stamps).
 
-Add a new shared file to both, otherwise a change to it does not trigger the builds that depend on it.
+Add a new build input to both, otherwise a change to it does not trigger the builds that depend on it.
 
 ## Usage
 
@@ -43,7 +43,7 @@ The pipeline runs in three stages:
 | build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                                         |
 | build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                                 |
 | build   | `uki`          | builds the generic UKI, signed with the `SB_KEY`, `SB_CERT` and `SB_CA_CERT` file variables, and publishes the `garuda-uki` package         |
-| build   | `iso`          | runs the child pipeline with one `iso:<edition>` job per edition to build                                                                   |
+| build   | `iso`          | runs the child pipeline with one `iso:<edition>` and one `publish:<edition>` job per edition to build                                       |
 
 The flow of a pipeline on the default branch:
 
@@ -66,8 +66,8 @@ flowchart LR
     trigger[iso] --> child
 
     subgraph child [child pipeline]
-      edition1[iso:mokka]
-      edition2[iso:edition ...]
+      edition1[iso:mokka] --> publish1[publish:mokka]
+      edition2[iso:edition ...] --> publish2[publish:edition ...]
     end
   end
 
@@ -79,7 +79,7 @@ flowchart LR
 
 A failing `lint` or `flake-check` job stops the pipeline before any build starts. `flake-check` runs on the `nix` runner, because the builder image has no Nix.
 
-All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. The ISO jobs build with `ISO_COMPRESSION=balanced` (zstd level 3, see [Building#Compression](building.md#compression)). For a release, run the pipeline from the web interface or a schedule with the variable `ISO_COMPRESSION` set to `max`: `ci/iso_pipeline.py` writes it into the ISO jobs. A new commit on a branch cancels the running jobs of the older pipeline of that branch. On the default branch, where a job may be publishing, it does not. Pipelines run for branches only, not a second time for merge requests.
+All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. The ISO jobs build with `ISO_COMPRESSION=balanced` (zstd level 3, see [Building#Compression](building.md#compression)). For a release, set the `iso_compression` input to `max`, see [Inputs](#inputs). A pipeline variable `ISO_COMPRESSION` still overrides it. `ci/iso_pipeline.py` writes the value into the ISO jobs. A new commit on a branch cancels the interruptible jobs of the older pipeline of that branch. On the default branch, only `iso:generate` and the `iso:<edition>` jobs of a push pipeline are interruptible. Jobs that publish (`distrobox`, `lima`, `uki`, `publish:<edition>`), the lint jobs they wait for, and every job of a schedule or web pipeline are not. Pipelines run for branches only, not a second time for merge requests.
 
 All build jobs share one copy of each layer, across pipelines.
 
@@ -123,10 +123,11 @@ When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repo
 
 A build runs:
 
-- on a pipeline schedule and on a pipeline started from the web interface, for every output and edition,
+- on a pipeline schedule and on a pipeline started from the web interface, for every output and edition, unless the `editions` input names some, see [Inputs](#inputs),
+- on a pipeline started through the trigger API, for the editions in the `editions` input only,
 - on a protected git tag named after the release date (`YYYYMMDD`, for example `20261201`), for every edition ISO, see [ISO artifacts](#iso-artifacts). Other tags, such as the versions of `cz bump`, build no ISO,
 - when the commit message contains one of the following tags,
-- on a push to the default branch that changes files the output depends on. A change to an edition profile builds only that edition. A change to shared files, such as `mkosi.conf`, `build.sh` or the `base` layer, builds every output.
+- on a push to the default branch that changes files the output depends on. For distrobox, Lima and UKI, against the previous push. For the ISOs, against the stamp of the published ISO, see [ISO stamps](#iso-stamps).
 
 The commit message tags:
 
@@ -140,6 +141,37 @@ The commit message tags:
 | `[build <edition>]` | the ISO of `<edition>` |
 
 On protected branches other than the default branch, the jobs build and check but do not publish. On unprotected branches, they do not run, see [Protected refs](#protected-refs).
+
+### Inputs
+
+The pipeline inputs (`spec:inputs` in `.gitlab-ci.yml`) appear in the _Run pipeline_ form. Schedules and the trigger API take them as well.
+
+| Input             | Values                                | Effect                                                                                                                                                        |
+| ----------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `editions`        | `all` or edition names, default empty | builds only these ISOs, without distrobox, Lima and UKI. Empty builds what the pipeline builds anyway. A trigger API pipeline with no editions builds nothing |
+| `iso_compression` | `balanced` (default), `max`           | the compression of the ISOs                                                                                                                                   |
+
+The edition list of `editions` must match `scripts/editions.sh`, `scripts/lint.sh` checks it. Add a new edition there too.
+
+To build the ISOs that contain a package after it reached the repositories, for example from the CI of the package, create a pipeline trigger token under _Settings > CI/CD > Pipeline trigger tokens_ and call:
+
+```console
+$ curl --request POST --form token=<token> --form ref=main \
+    --form 'inputs[editions]=["mokka","gnome"]' \
+    https://gitlab.com/api/v4/projects/garuda-linux%2Ftools%2Fimage-builder/trigger/pipeline
+```
+
+Array inputs are passed as JSON.
+
+### ISO stamps
+
+The stamp of an edition is a SHA-256 over the edition name and `git ls-files --stage` (mode, blob hash and path) of `STAMP_PATHS` in `ci/iso_pipeline.py`, without the profile directories of other editions. Package updates are not part of it, the weekly schedule picks them up.
+
+- `iso:<edition>` writes it to `garuda-<edition>.stamp` next to the ISO, and `ci/publish-iso.sh` publishes it under that fixed name.
+- `iso:generate` fetches `https://iso.builds.garudalinux.org/iso/image-builder/<edition>/latest/garuda-<edition>.stamp` on a push to the default branch and builds every edition whose stamp differs, so a cancelled push pipeline loses no changes. A missing stamp or an unreachable mirror builds the edition.
+- `ci/iso_pipeline.py --stamp <edition>` prints the stamp of the checkout.
+
+`iso:<edition>` copies the ISO to `/cache/publish/<edition>/<pipeline>/`, because its `after_script` prunes `mkosi.output/`. `publish:<edition>` uploads from there and removes the directory. `ci/shared-state.sh prune` removes directories older than a day.
 
 ## Publishing
 
