@@ -1,0 +1,14 @@
+[Unit]
+Description=Mark the boot good once the display manager runs
+Documentation=https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/
+Requires=display-manager.service
+After=display-manager.service
+Before=boot-complete.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+
+[Install]
+RequiredBy=boot-complete.target

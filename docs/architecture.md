@@ -308,6 +308,8 @@ The `root` layer installs `garuda-systemd-boot`, the _kernel-install_ configurat
 | `/usr/share/libalpm/hooks/61-garuda-kernel-install-remove.hook` | runs `kernel-install remove` for a removed kernel                                                              |
 | `/usr/lib/systemd/system-preset/80-garuda-systemd-boot.preset`  | enables `systemd-boot-update.service`, which updates _systemd-boot_ on the ESP after a _systemd_ update        |
 
+`garuda-boot-check.service` (`desktop` layer) holds back `boot-complete.target` until the display manager runs, so a boot without a display manager counts as a failed try. See [Automatic Boot Assessment](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
+
 `kernel-install-uki` passes the initramfs that `dracut-install-garuda` built in `/boot` to `kernel-install`, so dracut runs once per update. The kernel command line comes from `/etc/kernel/cmdline`. The UKIs land in `EFI/Linux/` on the ESP, where _systemd-boot_ finds them on its own.
 
 ### Snapshot entries
