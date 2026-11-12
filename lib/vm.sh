@@ -52,12 +52,12 @@ vm_system_settings() {
   log "Writing locale, keymap, time zone and hostname"
   sed -i 's/^#\(en_US.UTF-8 UTF-8\)/\1/' "$DISK_MNT/etc/locale.gen"
   arch-chroot "$DISK_MNT" locale-gen
-  echo "LANG=en_US.UTF-8" >"$DISK_MNT/etc/locale.conf"
-  # The desktop layer sets the console font in vconsole.conf, the keymap goes next to it
+  arch-chroot "$DISK_MNT" systemd-firstboot --force \
+    --locale=en_US.UTF-8 --timezone=UTC --hostname="garuda-$edition"
+
+  # Not through systemd-firstboot, it would drop the console font from vconsole.conf
   sed -i '/^KEYMAP=/d' "$DISK_MNT/etc/vconsole.conf"
   echo "KEYMAP=us" >>"$DISK_MNT/etc/vconsole.conf"
-  ln -sf /usr/share/zoneinfo/UTC "$DISK_MNT/etc/localtime"
-  echo "garuda-$edition" >"$DISK_MNT/etc/hostname"
 }
 
 # The user of the image, as the users module of Calamares creates it: the
