@@ -48,7 +48,8 @@ The installer works offline:
 4. _services-systemd_ only sets the graphical target. All other services come from the preset files, which were already applied in the copied layers.
 5. _postcfg_ creates the pacman keyring of the new system and rebuilds the initramfs: it removes the microcode package of the other CPU vendor, which triggers the dracut pacman hook, or runs `dracut-rebuild` itself when the vendor is unknown.
 6. _bootloader_ installs _systemd-boot_ on the ESP at `/efi` (4 GiB in automatic partitioning, at least 1 GiB when an existing ESP is picked), writes `/etc/kernel/cmdline` and runs `kernel-install add` for every kernel, which builds the UKIs with the configuration in `/etc/kernel/`, see [Architecture#systemd-boot](architecture.md#systemd-boot). The new system carries no GRUB.
-7. _preservefiles_ copies the installer log to `/var/log/Calamares-install.log` of the new system.
+7. _shellprocess@snapshot_ creates the `/.snapshots` subvolume and a permanent snapper snapshot "Fresh install", then runs `snapper-sdboot sync` to add its boot entry. Failures do not stop the installation.
+8. _preservefiles_ copies the installer log to `/var/log/Calamares-install.log` of the new system.
 
 The initramfs images in `/boot` are built in the `root` layer and rebuilt by _postcfg_ for the installed system. No separate _dracut_ module runs.
 

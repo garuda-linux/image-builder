@@ -320,6 +320,8 @@ The `desktop` layer installs `snapper-support-sdboot` with `snapper-sdboot`. It 
 2. `snapper-sdboot sync` builds a UKI from the snapshot's own kernel, initramfs and `/etc/kernel/cmdline` in `EFI/snapper-sdboot/<number>/snapshot.efi`, and a cmdline addon `snapshot.efi.extra.d/snapshot.addon.efi` with `rootflags=subvol=@/.snapshots/<number>/snapshot`. _systemd-stub_ appends the addon to the command line of the UKI, and btrfs uses the last `subvol=`, so the snapshot is mounted. The `50btrfs-snapshot-overlay` dracut module makes the read-only snapshot writable in RAM.
 3. A Type 1 entry `loader/entries/snapper-sdboot-<number>.conf` points at the UKI. Its sort key `snapper-sdboot` puts the snapshots below the normal entries, the newest first.
 
+The installer adds a permanent snapshot "Fresh install", see [Installer#Installation process](installer.md#installation-process).
+
 The snapshot UKIs live outside `EFI/Linux/`, so _systemd-boot_ does not list them twice and _kernel-install_ does not remove them with their kernel. When the ESP would fall under `FREE_SPACE_FLOOR_MIB` (512 MiB) of free space, the oldest snapshot entries are left out. `/etc/snapper-sdboot.conf` sets the floor and the skipped snapshot types. `snapper-sdboot list` prints the snapshot entries. The ESP is readable by root only, so the command runs itself through _sudo_ for other users. A system booted from a snapshot does not change the entries.
 
 ## See also
