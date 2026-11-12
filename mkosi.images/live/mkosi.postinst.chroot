@@ -34,7 +34,7 @@ polkit.addRule(function(action, subject) {
 });
 RULES
 
-# The Calamares branding names the codename of garuda-lsb
+# The Calamares branding names the codename, written to /etc/lsb-release by garuda-hooks
 # shellcheck source=/dev/null
 . /etc/lsb-release
 sed -i "s/@CODENAME@/${DISTRIB_CODENAME:?no DISTRIB_CODENAME in /etc/lsb-release}/g" \
@@ -43,11 +43,6 @@ sed -i "s/@CODENAME@/${DISTRIB_CODENAME:?no DISTRIB_CODENAME in /etc/lsb-release
 # git stores only 0644 and 0755, sudo expects 0440
 if compgen -G '/etc/sudoers.d/*' >/dev/null; then
   chmod 0440 /etc/sudoers.d/*
-fi
-
-hostname="$(cat /etc/hostname 2>/dev/null || true)"
-if [[ -n "$hostname" ]] && [[ -f /etc/hosts ]]; then
-  sed -i "s|localhost.localdomain|localhost.localdomain ${hostname}|" /etc/hosts
 fi
 
 # Skips the first-boot update services in the live session

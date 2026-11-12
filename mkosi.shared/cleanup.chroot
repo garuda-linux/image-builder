@@ -4,5 +4,5 @@ set -euo pipefail
 
 find /var/log -type f -delete
 rm -rf /var/lib/garuda/tmp
-rm -f /boot/grub/grub.cfg /var/lib/garuda/partial_upgrade /var/lib/pacman/sync/*
+rm -f /var/lib/garuda/partial_upgrade /var/lib/pacman/sync/*
 find / -xdev \( -name '*.pacnew' -o -name '*.pacsave' -o -name '*.pacorig' \) -delete

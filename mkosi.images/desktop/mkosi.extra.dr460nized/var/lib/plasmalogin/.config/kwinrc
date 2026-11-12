@@ -9,22 +9,12 @@ WobblynessLevel=1
 
 [Plugins]
 blurEnabled=true
-coverswitchEnabled=true
 desktopchangeosdEnabled=true
 fadeEnabled=true
-flipswitchEnabled=true
-forceblurEnabled=true
 magiclampEnabled=true
 scaleEnabled=false
 squashEnabled=false
 wobblywindowsEnabled=true
-
-[PrimaryOutline]
-ActiveOutlineUseCustom=false
-ActiveOutlineUsePalette=true
-InactiveOutlineColor=29,153,243
-InactiveOutlineThickness=3
-OutlineThickness=3
 
 [Round-Corners]
 ActiveOutlineAlpha=255
@@ -43,10 +33,6 @@ Size=20
 
 [Script-desktopchangeosd]
 PopupHideDelay=2000
-
-[SecondOutline]
-InactiveSecondOutlineThickness=0.25
-SecondOutlineThickness=0.25
 
 [TabBox]
 LayoutName=coverswitch

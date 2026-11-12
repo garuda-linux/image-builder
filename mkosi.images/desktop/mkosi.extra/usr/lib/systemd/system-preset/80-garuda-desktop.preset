@@ -22,7 +22,6 @@ enable btrfs-defrag.timer
 enable btrfs-scrub.timer
 enable btrfs-trim.timer
 enable garuda-pacman-lock.service
-# snapper-support
-# (snapper-support-sdboot needs no unit: its snapper plugin starts snapper-sdboot.service)
+# snapper-support-sdboot needs no unit: its snapper plugin starts snapper-sdboot.service.
+# No snapper-timeline.timer: the root config has TIMELINE_CREATE="no".
 enable snapper-cleanup.timer
-enable snapper-timeline.timer
