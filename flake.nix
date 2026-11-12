@@ -95,6 +95,7 @@
             "vm-test"
             "repro-check"
             "lint"
+            "local-pkg"
             "manifest-diff"
             "sbom"
             "nixfmt"
@@ -135,6 +136,7 @@
               (tool "vm-test")
               (tool "repro-check")
               (tool "lint")
+              (tool "local-pkg")
               (pytool "manifest-diff" "scripts/manifest_diff.py")
               (pytool "sbom" "scripts/sbom.py")
               git

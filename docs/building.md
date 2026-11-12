@@ -17,6 +17,7 @@ Each command runs a script of the `scripts/` directory in the checkout, so chang
 | `iso-test`       | boots a live ISO with _systemd-vmspawn_                                                                                        |
 | `vm-test`        | boots the VM image of an edition with _systemd-vmspawn_                                                                        |
 | `repro-check`    | builds twice and compares the outputs, see [Testing#Reproducibility](testing.md#reproducibility)                               |
+| `local-pkg`      | builds packages of a pkgbuilds repository with _cpb_ into `mkosi.packages/`, see [Local packages](#local-packages)             |
 | `lint`           | runs the pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_ and a mkosi check of every output and edition |
 | `manifest-diff`  | lists the package changes between two builds                                                                                   |
 | `sbom`           | writes the SPDX SBOM of a package manifest, see [SBOM](#sbom)                                                                  |
@@ -51,6 +52,31 @@ Packages built locally, for example a `garuda-hooks` that is not in the reposito
 $ cp ~/pkgbuilds/garuda-hooks/garuda-hooks-2.16.1-2-any.pkg.tar.zst mkosi.packages/
 $ build iso mokka
 ```
+
+#### Build with cpb
+
+`local-pkg` builds packages of a pkgbuilds repository with [cpb](https://gitlab.com/garuda-linux/tools/chaotic-portable-builder) into `mkosi.packages/`:
+
+```console
+$ local-pkg build garuda-hooks calamares-garuda
+$ build iso mokka
+```
+
+- The pkgbuilds repository is `--pkgbuilds <dir>`, else `$GARUDA_PKGBUILDS`, else `../pkgbuilds`. Uncommitted PKGBUILD changes are built.
+- `cpb` comes from `PATH`, else from the pkgbuilds devshell. It needs a terminal and _podman_.
+- cpb runs in `localhost/garuda-local-pkg-builder`: the cpb builder plus _garuda_ and _chaotic-aur_, with the keyring from `mkosi.sandbox/`.
+- Each call starts with an empty cpb repository, so packages from earlier calls are no build dependencies. Build them in one call instead.
+- `local-pkg list`, `local-pkg rm <pkgname>...` and `local-pkg clean` manage `mkosi.packages/`.
+
+#### Build from a local checkout
+
+```console
+$ local-pkg build --src ../garuda-dr460nized garuda-dr460nized-git
+```
+
+- The source entry matching the checkout's `origin` remote is replaced by a tarball of the working tree, `.git` included. Its checksums become `SKIP`.
+- The version stays the one of the PKGBUILD.
+- For archives other than GitLab ones, set the extracted directory name with `--dir <name>` if the warning shows a wrong guess.
 
 ## Usage
 
