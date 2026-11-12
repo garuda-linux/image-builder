@@ -18,8 +18,9 @@ if [[ ! -d "$root/mkosi.images/desktop/mkosi.profiles/$edition" ]]; then
   exit 1
 fi
 
-# Both runs must stamp the same version, SOURCE_DATE_EPOCH comes from git
+# SOURCE_DATE_EPOCH is the HEAD commit time, so HEAD must not move
 export VERSION="${VERSION:-$(date +%Y%m%d)}"
+head="$(git -C "$root" rev-parse HEAD)"
 out="$root/mkosi.output"
 work="$root/mkosi.cache/repro"
 
@@ -63,6 +64,11 @@ collect a
 echo "==> Second run, with the repository metadata of the first"
 build_all --cache-only=metadata
 collect b
+
+if [[ "$(git -C "$root" rev-parse HEAD)" != "$head" ]]; then
+  echo "HEAD moved from ${head:0:7} during the check, run it again" >&2
+  exit 2
+fi
 
 checksums a
 checksums b

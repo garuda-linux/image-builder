@@ -74,19 +74,18 @@ iso:{edition}:
     - ./build.sh iso "$EDITION"
     - ci/package-changes.sh "iso:$EDITION" "mkosi.output/garuda-$EDITION.iso.manifest"
     - ci/publish-iso.sh "$EDITION"
-    # For openqa:<edition>: the next job starts with a clean workspace, the
-    # /cache volume of the runner outlives it
+    # For openqa:<edition>. The rename keeps the ISO of a running test intact.
     - |
       if [ -n "${{OPENQA_DISTRI_URL:-}}" ]; then
-        # ISOs of pipelines whose openQA job never ran or was cancelled, two days or older
-        find /cache/openqa -mindepth 1 -maxdepth 1 -type d -mtime +1 -exec rm -rf {{}} + 2>/dev/null || true
-
-        mkdir -p "/cache/openqa/$CI_PIPELINE_ID"
-        cp --reflink=auto "$(readlink -f "mkosi.output/garuda-$EDITION.iso")" \\
-          "/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
+        iso="/cache/openqa/garuda-$EDITION.iso"
+        mkdir -p /cache/openqa
+        cp --reflink=auto "$(readlink -f "mkosi.output/garuda-$EDITION.iso")" "$iso.new"
+        mv -f "$iso.new" "$iso"
+        echo "$CI_PIPELINE_ID" >"$iso.pipeline"
       fi
   after_script:
     - ci/shared-state.sh save-tools
+    - ci/shared-state.sh prune
   # The ISO (about 5 GB) exceeds the artifact size limit and stays on the runner host
   artifacts:
     paths:
@@ -121,8 +120,11 @@ openqa:{edition}:
     EDITION: {edition}
     GIT_STRATEGY: none
   script:
-    - iso="/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
+    - iso="/cache/openqa/garuda-$EDITION.iso"
     - test -f "$iso" || {{ echo "no ISO at $iso, the iso:$EDITION job copies it there"; exit 1; }}
+    - >-
+      test "$(cat "$iso.pipeline" 2>/dev/null)" = "$CI_PIPELINE_ID" ||
+      {{ echo "$iso is from pipeline $(cat "$iso.pipeline" 2>/dev/null), not this one"; exit 1; }}
     # The tests run as root on the build host, so only a pinned tag or commit
     # of the test repository, never its newest branch
     - test -n "${{OPENQA_DISTRI_REF:-}}" || {{ echo "set OPENQA_DISTRI_REF to a tag or commit of the tests"; exit 1; }}
@@ -136,8 +138,8 @@ openqa:{edition}:
       UEFI_PFLASH_VARS=/usr/share/garuda-openqa/ovmf-vars.bin
       QEMURAM=6144 QEMUCPUS=4 HDDSIZEGB=40 GARUDA_SCENARIO=install
   after_script:
-    - rm -f "/cache/openqa/$CI_PIPELINE_ID/garuda-$EDITION.iso"
-    - rmdir "/cache/openqa/$CI_PIPELINE_ID" 2>/dev/null || true
+    - iso="/cache/openqa/garuda-$EDITION.iso"
+    - if [ "$(cat "$iso.pipeline" 2>/dev/null)" = "$CI_PIPELINE_ID" ]; then rm -f "$iso" "$iso.pipeline"; fi
   artifacts:
     when: always
     paths:

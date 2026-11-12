@@ -145,7 +145,6 @@ iso:
   variables:
     BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
     OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
-    IB_PIPELINE_ID: $CI_PIPELINE_ID
   trigger:
     include:
       - artifact: iso-pipeline.yml
@@ -169,6 +168,7 @@ iso:
     - ci/shared-state.sh
   after_script:
     - ci/shared-state.sh save-tools
+    - ci/shared-state.sh prune
 
 distrobox:
   extends: .build

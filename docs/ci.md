@@ -81,13 +81,13 @@ A failing `lint` or `flake-check` job stops the pipeline before any build starts
 
 All build jobs, including the ISO jobs of the child pipeline, share the resource group `build-host`, so only one build runs on the build host at a time. A job may run for 3 hours, enough for an ISO with `ISO_COMPRESSION=max`, and is retried once when the runner fails. The ISO jobs build with `ISO_COMPRESSION=balanced` (zstd level 3, see [Building#Compression](building.md#compression)). For a release, run the pipeline from the web interface or a schedule with the variable `ISO_COMPRESSION` set to `max`: `ci/iso_pipeline.py` writes it into the ISO jobs. A new commit on a branch cancels the running jobs of the older pipeline of that branch. On the default branch, where a job may be publishing, it does not. Pipelines run for branches only, not a second time for merge requests.
 
-The build jobs of one pipeline, including the ISO jobs of its child pipeline, share their layers. Pipelines never share layers with each other.
+All build jobs share one copy of each layer, across pipelines.
 
-- `ci/shared-state.sh` links `mkosi.output/`, `mkosi.cache/` and `mkosi.workspace/` to `/cache/image-builder/<pipeline>/` on the cache volume of the runner. mkosi resolves the links. The workspace has to be on the same device as the output, or mkosi copies every finished image instead of renaming it.
-- A later job reuses the layers, packages and repository metadata of an earlier one through the layer stamps and the package check, see [Building#Incremental builds](building.md#incremental-builds).
-- The `iso` trigger job passes the pipeline id to the child pipeline as `IB_PIPELINE_ID`.
-- The tools tree is shared by all pipelines, under `/cache/image-builder-tools/<key>/`, where the key is a hash of `mkosi.conf`, `mkosi.conf.d/` and the mkosi version. A job links `mkosi.tools/` and `mkosi.tools.manifest` to it when it exists, and mkosi uses it while the manifest matches. Otherwise mkosi builds the tree itself, and `ci/shared-state.sh save-tools` in `after_script` saves it, also after a failed build. Trees unused for a week are removed.
-- Each job removes the directories of pipelines two days or older.
+- `ci/shared-state.sh` links `mkosi.output/`, `mkosi.cache/` and `mkosi.workspace/` to `/cache/image-builder/`. The workspace must be on the same device as the output, or mkosi copies every image instead of renaming it.
+- Layer stamps and the package check decide what a job reuses, see [Building#Incremental builds](building.md#incremental-builds).
+- The tools tree is `/cache/image-builder-tools/`, used while its `key` file matches a hash of `mkosi.conf`, `mkosi.conf.d/` and the mkosi version. `ci/shared-state.sh save-tools` replaces it otherwise.
+- `ci/shared-state.sh prune` in `after_script` removes the final images, packages no layer has installed, caches of older releases and old shim downloads. The next job removes the artifact files it leaves.
+- The openQA ISO is `/cache/openqa/garuda-<edition>.iso`. An openQA job fails when `garuda-<edition>.iso.pipeline` names another pipeline.
 
 The `distrobox` and `lima` jobs run [boot-check](testing.md#boot-check) before they publish, so an image that does not boot is never published. The registry keeps the last image that did.
 

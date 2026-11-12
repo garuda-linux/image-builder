@@ -1,63 +1,99 @@
 #!/bin/sh
-# Usage: ci/shared-state.sh [save-tools]
-#   Links mkosi.output, mkosi.cache and mkosi.workspace to /cache/image-builder/<pipeline>/,
-#   so the build jobs of one pipeline, its ISO child pipeline included, share
-#   layers, packages and caches. The jobs run one at a time (resource_group
-#   build-host), so they never write at once.
-#
-#   The tools tree only depends on the tools settings (ToolsTreeSnapshot= and
-#   the package list) and the mkosi version, so all pipelines share it, under
-#   /cache/image-builder-tools/<key>/.
+# Usage: ci/shared-state.sh [save-tools|prune]
+#   Links mkosi.output, mkosi.cache and mkosi.workspace to /cache/image-builder/,
+#   shared by all pipelines. Jobs run one at a time (resource_group build-host).
+#   The tools tree is /cache/image-builder-tools/, replaced when its key changes.
+#   prune removes final images, uninstalled packages and older release caches.
 
 set -eu
 
-tools_base=/cache/image-builder-tools
-tools_key="$({
+base=/cache/image-builder
+tools=/cache/image-builder-tools
+
+if [ "${1:-}" = prune ]; then
+  # Small artifact files stay: GitLab uploads them after after_script
+  find "$base/mkosi.output" -mindepth 1 -maxdepth 1 \( -name 'garuda-*.iso' -o -name 'garuda-*.qcow2' \
+    -o -name 'garuda-*.efi' -o -name garuda-distrobox \) -exec rm -rf {} +
+
+  installed="$(mktemp)"
+  for db in "$base"/mkosi.output/*/var/lib/pacman/local "$base"/mkosi.cache/*.cache/var/lib/pacman/local \
+    mkosi.tools/var/lib/pacman/local; do
+    [ -d "$db" ] && ls "$db"
+  done | sort -u >"$installed"
+
+  for file in "$base"/mkosi.cache/packages/cache/pacman/pkg/*.pkg.tar*; do
+    [ -e "$file" ] || continue
+    id="${file##*/}"
+    id="${id%.sig}"
+    id="${id%.pkg.tar*}"
+    grep -qxF "${id%-*}" "$installed" || rm -f "$file"
+  done
+
+  rm -f "$installed"
+
+  # <distribution>~<release>~<arch>~<image>: keep the newest release
+  newest="$(find "$base/mkosi.cache" -mindepth 1 -maxdepth 1 -name '*~*.cache' -printf '%T@ %p\n' 2>/dev/null |
+    sort -n | tail -n1 | cut -d' ' -f2-)"
+  if [ -n "$newest" ]; then
+    release="${newest##*/}"
+    release="${release#*~}"
+    release="${release%%~*}"
+    for entry in "$base"/mkosi.cache/*~*; do
+      name="${entry##*/}"
+      name="${name#*~}"
+      [ "${name%%~*}" = "$release" ] || rm -rf "$entry"
+    done
+  fi
+
+  shim="$(sed -n 's/^readonly SHIM_VERSION="\(.*\)"/\1/p' lib/secureboot.sh)"
+  for file in "$base"/mkosi.cache/shim/*; do
+    [ -e "$file" ] || continue
+    case "${file##*/}" in
+      *"-$shim."*) ;;
+      *) rm -f "$file" ;;
+    esac
+  done
+
+  echo "Pruned the shared state: $(du -sh "$base" | cut -f1)"
+  exit 0
+fi
+key="$({
   cat mkosi.conf mkosi.conf.d/*.conf
   mkosi --version
 } | sha256sum | cut -c1-16)"
-tools="$tools_base/$tools_key"
 
 if [ "${1:-}" = save-tools ]; then
   if [ -d mkosi.tools ] && [ ! -L mkosi.tools ] && [ -f mkosi.tools.manifest ]; then
     rm -rf "$tools.new"
     mkdir -p "$tools.new"
     cp -a --reflink=auto mkosi.tools mkosi.tools.manifest "$tools.new/"
+    echo "$key" >"$tools.new/key"
     rm -rf "$tools"
     mv "$tools.new" "$tools"
-    echo "Saved the tools tree as $tools_key for later jobs"
+    echo "Saved the tools tree $key for later jobs"
   fi
 
   exit 0
 fi
 
-# The ISO child pipeline gets the id of its parent, see the iso job
-pipeline="${IB_PIPELINE_ID:-$CI_PIPELINE_ID}"
-base=/cache/image-builder
-
-mkdir -p "$base" "$tools_base"
-
-# Pipelines two days or older, also cancelled ones. Tools trees unused for a week.
-find "$base" -mindepth 1 -maxdepth 1 -type d ! -name "$pipeline" -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-find "$tools_base" -mindepth 1 -maxdepth 1 -type d ! -name "$tools_key" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
-
 # mkosi.workspace too: mkosi renames finished images from it into
 # mkosi.output, which needs both on one device, or it copies every layer
 for dir in mkosi.output mkosi.cache mkosi.workspace; do
-  mkdir -p "$base/$pipeline/$dir"
+  mkdir -p "$base/$dir"
   [ -L "$dir" ] || rm -rf -- "$dir"
-  ln -sfn "$base/$pipeline/$dir" "$dir"
+  ln -sfn "$base/$dir" "$dir"
 done
-touch "$base/$pipeline"
 
-if [ -d "$tools/mkosi.tools" ] && [ -f "$tools/mkosi.tools.manifest" ]; then
+# The artifact files prune left
+find "$base/mkosi.output" -mindepth 1 -maxdepth 1 -name 'garuda-*' -exec rm -rf {} +
+
+if [ "$(cat "$tools/key" 2>/dev/null)" = "$key" ]; then
   for path in mkosi.tools mkosi.tools.manifest; do
     [ -L "$path" ] || rm -rf -- "$path"
     ln -sfn "$tools/$path" "$path"
   done
 
-  touch "$tools"
-  echo "Reusing the tools tree $tools_key"
+  echo "Reusing the tools tree $key"
 fi
 
-echo "Sharing mkosi.output, mkosi.cache and mkosi.workspace with pipeline $pipeline: $(du -sh "$base/$pipeline" | cut -f1)"
+echo "Sharing mkosi.output, mkosi.cache and mkosi.workspace: $(du -sh "$base" | cut -f1)"
