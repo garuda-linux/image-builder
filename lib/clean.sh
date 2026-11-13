@@ -58,6 +58,11 @@ clean_paths() {
   echo "$PWD/mkosi.cache/shim"
   echo "$PWD/mkosi.tools"
   echo "$PWD/mkosi.tools.manifest"
+  echo "$PWD/mkosi.workspace"
+  echo "$OUTPUT_DIR/.secureboot"
+  echo "$TIMINGS_FILE"
+  echo "$PWD/$SANDBOX/usr"
+  echo "$PWD/$SANDBOX/etc/pacman.d/chaotic-mirrorlist"
 }
 
 clean_main() {

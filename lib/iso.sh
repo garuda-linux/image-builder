@@ -21,7 +21,7 @@ edition_args() {
   [[ -n "${EDITION_KERNEL[$edition]:-}" ]] || return 0
 
   for arg in "$@"; do
-    [[ "$arg" == KERNEL=* || "$arg" == *=KERNEL=* ]] && return 0
+    [[ "$arg" == KERNEL=* || "$arg" == *=KERNEL=* || "$arg" == -EKERNEL=* ]] && return 0
   done
 
   printf '%s\n' -E "KERNEL=${EDITION_KERNEL[$edition]}"

@@ -38,21 +38,22 @@ fetch_chaotic() {
   fi
 
   log "Fetching chaotic keyring and mirrorlist"
-  local tmp pkg
-  tmp="$(mktemp -d)"
 
-  for pkg in keyring mirrorlist; do
-    curl -fsSL -o "$tmp/$pkg.pkg.tar.zst" "$CHAOTIC_CDN/chaotic-$pkg.pkg.tar.zst"
-    curl -fsSL -o "$tmp/$pkg.pkg.tar.zst.sig" "$CHAOTIC_CDN/chaotic-$pkg.pkg.tar.zst.sig"
-  done
+  (
+    tmp="$(mktemp -d)"
+    trap 'GNUPGHOME="$tmp/gnupg" gpgconf --kill all 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
-  verify_chaotic "$tmp"
+    for pkg in keyring mirrorlist; do
+      curl -fsSL --proto '=https' -o "$tmp/$pkg.pkg.tar.zst" "$CHAOTIC_CDN/chaotic-$pkg.pkg.tar.zst"
+      curl -fsSL --proto '=https' -o "$tmp/$pkg.pkg.tar.zst.sig" "$CHAOTIC_CDN/chaotic-$pkg.pkg.tar.zst.sig"
+    done
 
-  mkdir -p "$keyrings" "$(dirname "$mirrorlist")"
-  tar --zstd -xf "$tmp/keyring.pkg.tar.zst" -C "$tmp" usr/share/pacman/keyrings
-  cp "$tmp"/usr/share/pacman/keyrings/* "$keyrings/"
-  tar --zstd -xf "$tmp/mirrorlist.pkg.tar.zst" -C "$tmp" etc/pacman.d/chaotic-mirrorlist
-  cp "$tmp/etc/pacman.d/chaotic-mirrorlist" "$mirrorlist"
+    verify_chaotic "$tmp"
 
-  rm -rf "$tmp"
+    mkdir -p "$keyrings" "$(dirname "$mirrorlist")"
+    tar --zstd -xf "$tmp/keyring.pkg.tar.zst" -C "$tmp" usr/share/pacman/keyrings
+    cp "$tmp"/usr/share/pacman/keyrings/* "$keyrings/"
+    tar --zstd -xf "$tmp/mirrorlist.pkg.tar.zst" -C "$tmp" etc/pacman.d/chaotic-mirrorlist
+    cp "$tmp/etc/pacman.d/chaotic-mirrorlist" "$mirrorlist"
+  )
 }

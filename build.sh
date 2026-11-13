@@ -24,7 +24,7 @@
 #   --rebuild-builder  build the builder image again (with --container)
 #
 # Environment:
-#   VERSION          image version, default today as YYYYMMDD
+#   VERSION          image version as YYYYMMDD, default today
 #   ISO_COMPRESSION  fast (lz4, default), balanced (zstd level 3, CI default)
 #                    or max (zstd level 22, releases)
 #   SB_KEY, SB_CERT  Secure Boot key (PEM file or pkcs11: URI) and PEM cert,
@@ -63,6 +63,8 @@ die() {
   printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2
   exit 1
 }
+
+[[ "$VERSION" =~ ^[0-9]{8}$ ]] || die "VERSION must be a date as YYYYMMDD, not $VERSION"
 
 usage() {
   # The header comment must not contain an empty line
