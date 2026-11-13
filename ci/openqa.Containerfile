@@ -4,12 +4,23 @@
 #   CI jobs and run-local.sh. The weekly schedule rebuilds it for updates.
 # - openqa-single-instance: web UI, database and worker in one container, for
 #   webui-local.sh of the test repository (needle editor, developer mode).
-# Both are openSUSE Tumbleweed.
+# - containers16.1/openqa_worker: the worker on aerialis (Leap 16.1).
 ARG BASE=registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm
 FROM ${BASE}
 
 LABEL org.opencontainers.image.title="garuda openQA" \
       org.opencontainers.image.source="https://gitlab.com/garuda-linux/tools/image-builder"
+
+ARG OPENQA_KEY_FPR=A99A72E306F20929E6DEE3785B121667CBDF5E8F
+RUN set -e; \
+    if grep -rqs 'devel:openQA' /etc/zypp/repos.d; then \
+        curl -fsSL -o /tmp/openqa.key https://download.opensuse.org/repositories/devel:openQA/openSUSE_Tumbleweed/repodata/repomd.xml.key; \
+        gpg --batch --show-keys --with-colons /tmp/openqa.key >/tmp/openqa.keyinfo; \
+        fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' /tmp/openqa.keyinfo)"; \
+        [ "$fpr" = "$OPENQA_KEY_FPR" ] || { echo "devel:openQA key is $fpr, expected $OPENQA_KEY_FPR"; exit 1; }; \
+        rpm --import /tmp/openqa.key; \
+        rm -rf /tmp/openqa.key /tmp/openqa.keyinfo /root/.gnupg; \
+    fi
 
 # Package versions are not pinned: Tumbleweed is rolling and zypper resolves the versions of the base image.
 # hadolint ignore=DL3037

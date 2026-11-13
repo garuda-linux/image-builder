@@ -39,6 +39,7 @@ workflow:
 variables:
   BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
   OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
+  OPENQA_WORKER_IMAGE: $CI_REGISTRY_IMAGE/openqa-worker:latest
   BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
   # Read by the rules below and ci/iso_pipeline.py. The space makes GitLab
   # insert the array as text, a variable cannot hold an array
@@ -70,9 +71,6 @@ variables:
 
 # Publishing jobs set interruptible: false in every rule of the default branch
 .rules:
-  renovate: &no_renovate
-    if: $RENOVATE == "true"
-    when: never
   schedule: &schedule
     if: $CI_PIPELINE_SOURCE == "schedule"
     interruptible: false
@@ -96,7 +94,6 @@ builder:
   image: docker:29-cli
   tags: [dind]
   rules:
-    - *no_renovate
     - *no_api
     - *no_editions
     - *schedule
@@ -115,7 +112,6 @@ openqa-image:
   image: docker:29-cli
   tags: [dind]
   rules:
-    - *no_renovate
     - *no_api
     - *no_editions
     - if: $OPENQA_DISTRI_URL == null || $OPENQA_DISTRI_URL == ""
@@ -130,13 +126,16 @@ openqa-image:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker build -t "$OPENQA_IMAGE" -f ci/openqa.Containerfile ci
     - docker push "$OPENQA_IMAGE"
+    - >-
+      docker build -t "$OPENQA_WORKER_IMAGE" -f ci/openqa.Containerfile
+      --build-arg BASE=registry.opensuse.org/devel/openqa/containers16.1/openqa_worker:latest ci
+    - docker push "$OPENQA_WORKER_IMAGE"
 
 lint:
   stage: lint
   image: $BUILDER_IMAGE
   interruptible: true
   rules:
-    - *no_renovate
     # The distrobox, Lima and UKI jobs of the default branch wait for it
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       interruptible: false
@@ -151,7 +150,6 @@ flake-check:
   tags: [nix]
   interruptible: true
   rules:
-    - *no_renovate
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       interruptible: false
     - when: on_success
@@ -160,25 +158,11 @@ flake-check:
   script:
     - nix flake check --no-update-lock-file --print-build-logs
 
-renovate:
-  stage: lint
-  image: renovate/renovate:44
-  rules:
-    - if: $RENOVATE == "true" && $CI_PIPELINE_SOURCE == "schedule"
-  variables:
-    RENOVATE_PLATFORM: gitlab
-    RENOVATE_ENDPOINT: $CI_API_V4_URL
-    RENOVATE_REPOSITORIES: $CI_PROJECT_PATH
-    RENOVATE_ALLOWED_COMMANDS: '["^bash ci/renovate-hashes\\.sh (shim|nix-direnv)$"]'
-  script:
-    - renovate
-
 iso:generate:
   stage: lint
   image: $BUILDER_IMAGE
   interruptible: true
   rules:
-    - *no_renovate
     - *schedule
     - *web
     - when: on_success
@@ -192,7 +176,6 @@ iso:
   stage: build
   needs: [iso:generate, lint, flake-check]
   rules:
-    - *no_renovate
     - when: on_success
   variables:
     BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
@@ -229,7 +212,6 @@ distrobox:
       aud: sigstore
   rules:
     - *protected_only
-    - *no_renovate
     - *no_api
     - *no_editions
     - *schedule
@@ -298,7 +280,6 @@ lima:
       aud: sigstore
   rules:
     - *protected_only
-    - *no_renovate
     - *no_api
     - *no_editions
     - *schedule
@@ -362,7 +343,6 @@ uki:
     action: access
   rules:
     - *protected_only
-    - *no_renovate
     - *no_api
     - *no_editions
     - *schedule

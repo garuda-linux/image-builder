@@ -147,7 +147,7 @@ Check on the first boot:
 
 ## openQA
 
-The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_, and run with `isotovideo` alone, in CI or locally with its `run-local.sh`. In one job, they test the live ISO (the _systemd-boot_ menu, the boot into the live session and checks inside it), an unattended installation with Calamares on an empty 40 GB disk, and the installed system after a reboot from the disk. For the installation, the test turns the Calamares configuration of the ISO into an unattended one, see the README of the test repository.
+The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_. CI runs them on the openQA instance on aerialis as the gate before an ISO is published. Locally they run with `isotovideo` alone through its `run-local.sh`. In one job, they test the live ISO (the _systemd-boot_ menu, the boot into the live session and checks inside it), an unattended installation with Calamares on an empty 40 GB disk, and the installed system after a reboot from the disk. For the installation, the test turns the Calamares configuration of the ISO into an unattended one, see the README of the test repository.
 
 The live ISO has an openQA mode for them. `garuda.openqa` on the kernel command line, which the test types into the _systemd-boot_ editor, starts `garuda-openqa.service`:
 

@@ -10,7 +10,6 @@ A project maintainer sets the project up once:
 2. Build the builder image: run a pipeline from the web interface and start the manual `builder` job, or push a change to `ci/Containerfile`.
 3. Add a weekly pipeline schedule on the default branch under _Build > Pipeline schedules_. The weekly build picks up package updates.
 4. Enable the container registry and the package registry of the project. The build jobs use the predefined `CI_REGISTRY_PASSWORD` and `CI_JOB_TOKEN` variables.
-5. For Renovate, create a project access token with the `api` and `write_repository` scopes and the _Developer_ role, and store it as the masked and protected CI/CD variable `RENOVATE_TOKEN`, so only pipelines of protected refs can read it. Then add a second weekly pipeline schedule with the variable `RENOVATE` set to `true`, see [Renovate](#renovate).
 
 ### Protected refs
 
@@ -36,14 +35,14 @@ The pipeline runs in three stages:
 | Stage   | Job            | Purpose                                                                                                                                     |
 | ------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | builder | `builder`      | builds the builder image, published as `builder:latest` in the project registry                                                             |
-| builder | `openqa-image` | builds the isotovideo image for the openQA jobs, published as `openqa:latest`, see [openQA](#openqa)                                        |
+| builder | `openqa-image` | builds the isotovideo image `openqa:latest` and the worker image `openqa-worker:latest`, see [openQA](#openqa)                              |
 | lint    | `lint`         | runs `scripts/lint.sh`: _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_, mkosi config of every output and edition                     |
 | lint    | `iso:generate` | writes the child pipeline with the ISO jobs this pipeline needs                                                                             |
 | lint    | `flake-check`  | runs `nix flake check`: the pre-commit hooks of `flake.nix` (_nixfmt_, _prettier_, _ruff_, _shfmt_, _hadolint_, _commitizen_) in check mode |
 | build   | `distrobox`    | builds, boot-checks, signs and publishes `garuda-distrobox:latest` and `:<version>`                                                         |
 | build   | `lima`         | builds, boot-checks and publishes the `garuda-lima` package                                                                                 |
 | build   | `uki`          | builds the generic UKI, signed with the `SB_KEY`, `SB_CERT` and `SB_CA_CERT` file variables, and publishes the `garuda-uki` package         |
-| build   | `iso`          | runs the child pipeline with one `iso:<edition>` and one `publish:<edition>` job per edition to build                                       |
+| build   | `iso`          | runs the child pipeline with `iso:<edition>`, `openqa:<edition>`, `publish:<edition>` and `cleanup:<edition>` per edition to build          |
 
 The flow of a pipeline on the default branch:
 
@@ -66,8 +65,8 @@ flowchart LR
     trigger[iso] --> child
 
     subgraph child [child pipeline]
-      edition1[iso:mokka] --> publish1[publish:mokka]
-      edition2[iso:edition ...] --> publish2[publish:edition ...]
+      edition1[iso:mokka] --> test1[openqa:mokka] --> publish1[publish:mokka] --> cleanup1[cleanup:mokka]
+      edition2[iso:edition ...] --> test2[openqa:edition ...] --> publish2[publish:edition ...] --> cleanup2[cleanup:edition ...]
     end
   end
 
@@ -87,7 +86,6 @@ All build jobs share one copy of each layer, across pipelines.
 - Layer stamps and the package check decide what a job reuses, see [Building#Incremental builds](building.md#incremental-builds).
 - The tools tree is `/cache/image-builder-tools/`, used while its `key` file matches a hash of `mkosi.conf`, `mkosi.conf.d/` and the mkosi version. `ci/shared-state.sh save-tools` replaces it otherwise.
 - `ci/shared-state.sh prune` in `after_script` removes the final images, packages no layer has installed, caches of older releases and old shim downloads. The next job removes the artifact files it leaves.
-- The openQA ISO is `/cache/openqa/garuda-<edition>.iso`. An openQA job fails when `garuda-<edition>.iso.pipeline` names another pipeline.
 
 The `distrobox` and `lima` jobs run [boot-check](testing.md#boot-check) before they publish, so an image that does not boot is never published. The registry keeps the last image that did.
 
@@ -95,7 +93,7 @@ Every build job keeps the package manifest of its output for a month, together w
 
 ### Renovate
 
-[Renovate](https://docs.renovatebot.com/) keeps the pinned versions current. The `renovate` job runs on its own pipeline schedule (variable `RENOVATE=true`), which runs no other job. Each Monday, it opens merge requests for:
+[Renovate](https://docs.renovatebot.com/) keeps the pinned versions current. The dedicated Renovate runner of Garuda reads `renovate.json` and opens merge requests for:
 
 - the Arch Linux archive date of the mkosi tools tree (`ToolsTreeSnapshot=` in `mkosi.conf`), from `https://archive.archlinux.org/repos/last/lastsync`. Its commit message contains `[build distrobox]`, so the default branch pipeline after the merge builds and boot-checks the distrobox image with the new tools. The Renovate branches are not protected, so their branch pipelines only lint,
 - the container images of `.gitlab-ci.yml`, `ci/iso_pipeline.py`, `ci/Containerfile` and `ci/openqa.Containerfile`. Mutable tags are pinned by digest. The dated Arch base of `ci/Containerfile` keeps its tag and needs `ARCH_SNAPSHOT`, the archive snapshot that pacman installs from, updated with it (`scripts/lint.sh` checks that the dates match),
@@ -103,7 +101,7 @@ Every build job keeps the package manifest of its output for a month, together w
 - Fedora's _shim_ (`SHIM_VERSION` in `lib/secureboot.sh`), from the `shim-x64` package of Fedora rawhide on `https://mdapi.fedoraproject.org`,
 - _nix-direnv_ in `.envrc`, from the GitHub releases of `nix-community/nix-direnv`.
 
-The _shim_ and _nix-direnv_ pins carry the hash of the download. After the version bump, Renovate runs `ci/renovate-hashes.sh`, which downloads the new file and writes its hash into the same merge request. The job allows only this command (`RENOVATE_ALLOWED_COMMANDS` in `.gitlab-ci.yml`). The merge request pipeline does not build, so check a _shim_ bump with a signed ISO build before merging. A signed build fails when `shimx64.efi` has no signature of a Microsoft UEFI CA: `lib/secureboot.sh` checks it against `ci/ms-uefi-2011.pem` and `ci/ms-uefi-2023.pem`.
+The _shim_ and _nix-direnv_ pins carry the hash of the download. After the version bump, Renovate runs `ci/renovate-hashes.sh`, which downloads the new file and writes its hash into the same merge request. The runner must allow this command in its `allowedCommands`. The merge request pipeline does not build, so check a _shim_ bump with a signed ISO build before merging. A signed build fails when `shimx64.efi` has no signature of a Microsoft UEFI CA: `lib/secureboot.sh` checks it against `ci/ms-uefi-2011.pem` and `ci/ms-uefi-2023.pem`.
 
 Nothing is merged automatically. The configuration is `renovate.json`.
 
@@ -113,11 +111,23 @@ The ISO jobs are not listed in `.gitlab-ci.yml`. `ci/iso_pipeline.py` takes the 
 
 ### openQA
 
-When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. The job checks out the tag or commit in `OPENQA_DISTRI_REF`, never a branch head: the tests run as root on the build host, so a new version of them is taken in on purpose by changing the variable. It runs the tests with `isotovideo` on the `nix-privileged` runner, which has KVM, in the `openqa:latest` image of the project registry. One test VM runs at a time (`resource_group: openqa-host`), next to at most one ISO build. The `openqa-image` job builds it from `ci/openqa.Containerfile`: the upstream image `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm` plus `Inline::Python`, without which isotovideo cannot load the Python tests. With the build argument `BASE` set to `openqa-single-instance`, the same file builds the local web UI image of the test repository. It runs like `builder`, and only when `OPENQA_DISTRI_URL` is set. Start it once by hand before the first openQA run. See [Testing#openQA](testing.md#openqa).
+When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. It is the gate of the ISO: `publish:<edition>` needs it, so an ISO that fails the tests is never published, neither as `latest` nor as `release`.
 
-- The next job starts with a clean workspace, so the ISO job copies its ISO to `/cache/openqa/garuda-<edition>.iso` on the runner's cache volume and writes the pipeline ID to `garuda-<edition>.iso.pipeline`. The test job deletes both at the end. An ISO left by a test job that never ran or was cancelled stays until the next build of the edition replaces it.
-- The jobs report only (`allow_failure`): a failed test does not stop publishing until the tests are stable.
-- The results stay for two weeks as artifacts: `testresults/` with the screenshots and the result of each test, `video.ogv`, `autoinst-log.txt` and `serial0`.
+The tests run on the openQA instance `https://openqa.garudalinux.org` on aerialis (infra-nix `compose/openqa`), not on the build host. It has a single worker, so one test VM runs at a time, inside a resource ceiling of 8 threads and 20 GB that keeps the web services of aerialis responsive. `ci/openqa-gate.sh` schedules the `install` scenario with `openqa-cli schedule --monitor` and waits for the result:
+
+- The scenario definitions (product, UEFI machine, the `install` job template with the QEMU settings of `scenarios.sh`) travel with the request as `SCENARIO_DEFINITIONS_YAML`. The instance needs no job templates.
+- `iso:<edition>` copies the ISO to the staging directory `/publish/iso/<edition>/staging/<pipeline>/` on the ISO mirror, served without a listing. openQA downloads it from there through `ISO_URL`, `iso.builds.garudalinux.org` is its only download domain. `publish:<edition>` publishes from the same directory, and `cleanup:<edition>` deletes it at the end, also after a failure. infra-nix removes leftovers of cancelled pipelines after 2 days.
+- `CASEDIR` is `OPENQA_DISTRI_URL#OPENQA_DISTRI_REF`. The worker clones that tag for each job, never a branch head, so a new version of the tests is taken in on purpose by changing the variable.
+- openQA keeps the results, with screenshots, video and logs, for 90 days. The job log prints the link to the build overview. `BUILD` is the pipeline ID.
+- One gate job runs at a time (`resource_group: openqa-aerialis`), so the 2 hour timeout counts the test, not the queue. A cancelled CI job does not cancel the openQA job.
+- CI/CD variables: `OPENQA_HOST` (`https://openqa.garudalinux.org`), `OPENQA_API_KEY` and `OPENQA_API_SECRET` (masked, an API key of an operator, created in the web UI under _Manage API keys_), `OPENQA_DISTRI_URL` and `OPENQA_DISTRI_REF`.
+
+The `openqa-image` job builds two images from `ci/openqa.Containerfile`, which adds `Inline::Python` (without it isotovideo cannot load the Python tests) and fixed OVMF paths under `/usr/share/garuda-openqa/`:
+
+- `openqa:latest`, from `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm`, for `run-local.sh` of the test repository,
+- `openqa-worker:latest`, from `registry.opensuse.org/devel/openqa/containers16.1/openqa_worker:latest`, the worker of the instance on aerialis.
+
+With the build argument `BASE` set to `openqa-single-instance`, the same file builds the local web UI image of the test repository. The job runs like `builder`, and only when `OPENQA_DISTRI_URL` is set. Start it once by hand before the first gate run. See [Testing#openQA](testing.md#openqa).
 
 ### Triggers
 
@@ -127,7 +137,7 @@ A build runs:
 - on a pipeline started through the trigger API, for the editions in the `editions` input only,
 - on a protected git tag named after the release date (`YYYYMMDD`, for example `20261201`), for every edition ISO, see [ISO artifacts](#iso-artifacts). Other tags, such as the versions of `cz bump`, build no ISO,
 - when the commit message contains one of the following tags,
-- on a push to the default branch that changes files the output depends on. For distrobox, Lima and UKI, against the previous push. For the ISOs, against the stamp of the published ISO, see [ISO stamps](#iso-stamps).
+- on a push to the default branch that changes files the output depends on. For distrobox, Lima and UKI, against the previous push. For the ISOs, against the stamp of the published ISO, see [ISO stamps](#iso-stamps). A `[build <edition>]` tag replaces the stamp check: only the tagged editions build. An edition without a published ISO counts as changed.
 
 The commit message tags:
 
@@ -171,7 +181,7 @@ The stamp of an edition is a SHA-256 over the edition name and `git ls-files --s
 - `iso:generate` fetches `https://iso.builds.garudalinux.org/iso/image-builder/<edition>/latest/garuda-<edition>.stamp` on a push to the default branch and builds every edition whose stamp differs, so a cancelled push pipeline loses no changes. A missing stamp or an unreachable mirror builds the edition.
 - `ci/iso_pipeline.py --stamp <edition>` prints the stamp of the checkout.
 
-`iso:<edition>` copies the ISO to `/cache/publish/<edition>/<pipeline>/`, because its `after_script` prunes `mkosi.output/`. `publish:<edition>` uploads from there and removes the directory. `ci/shared-state.sh prune` removes directories older than a day.
+`iso:<edition>` copies the ISO to the staging directory `/publish/iso/<edition>/staging/<pipeline>/`, because its `after_script` prunes `mkosi.output/`. `openqa:<edition>` tests it from there, `publish:<edition>` uploads from there, and `cleanup:<edition>` removes the directory, see [openQA](#openqa).
 
 ## Publishing
 
@@ -245,7 +255,7 @@ $ sha256sum -c garuda-mokka-linux-garuda-<date>.iso.sha256
 
 A latest ISO has `@refs/heads/<default_branch>` instead.
 
-Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. The copy in `/cache/publish/` is removed after the upload.
+Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. `cleanup:<edition>` removes the staging copy after the upload.
 
 ## Known issues
 
