@@ -58,7 +58,7 @@ def document(raw, name, version, epoch):
                         "referenceCategory": "PACKAGE-MANAGER",
                         "referenceType": "purl",
                         "referenceLocator": (
-                            f"pkg:alpm/arch/{p['name']}@{p['version']}?arch={p.get('architecture', 'any')}"
+                            f"pkg:alpm/garuda/{p['name']}@{p['version']}?arch={p.get('architecture', 'any')}"
                         ),
                     }
                 ],

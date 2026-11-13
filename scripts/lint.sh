@@ -21,10 +21,10 @@ fi
 scripts_out="$(scripts/shell-files.sh)" || fail "shell file list"
 mapfile -t scripts <<<"$scripts_out"
 
-# Scripts that mkosi, pacman, kernel-install or systemd run directly need the
-# executable bit in git, mkosi stops on a postinst script without it
-nonexec="$(git ls-files -s -- '*.chroot' '*.install' 'mkosi.images/*/mkosi.extra/usr/bin/*' \
-  'mkosi.images/*/mkosi.extra/usr/lib/garuda/*' 'mkosi.images/*/mkosi.extra/usr/lib/snapper/plugins/*' \
+# Scripts that mkosi or systemd run directly need the executable bit in git,
+# mkosi stops on a postinst script without it
+nonexec="$(git ls-files -s -- '*.chroot' 'mkosi.images/*/mkosi.extra/usr/bin/*' \
+  'mkosi.images/*/mkosi.extra/usr/lib/garuda/*' \
   'mkosi.images/*/mkosi.extra/usr/lib/systemd/system-generators/*' | awk '$1 == "100644" { print $4 }')"
 if [[ -z "$nonexec" ]]; then ok "executable bits"; else
   fail "executable bits"

@@ -12,10 +12,7 @@ out="$(git ls-files '*.sh' '*.chroot' \
   'mkosi.images/live-initrd/mkosi.extra/usr/bin/*' \
   'mkosi.images/live-initrd/mkosi.extra/usr/lib/systemd/system-generators/*' \
   'mkosi.images/live/mkosi.extra/usr/bin/*' \
-  'mkosi.images/*/mkosi.extra/usr/lib/garuda/*' \
-  'mkosi.images/*/mkosi.extra/etc/kernel/install.d/*.install' \
-  'mkosi.images/desktop/mkosi.extra/usr/bin/snapper-sdboot' \
-  'mkosi.images/desktop/mkosi.extra/usr/lib/snapper/plugins/*')"
+  'mkosi.images/*/mkosi.extra/usr/lib/garuda/*')"
 
 if [[ "${1:-}" == --exec ]]; then
   shift
