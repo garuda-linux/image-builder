@@ -157,12 +157,35 @@ local_packages_hash() {
   sha256sum "${found[@]}" | sha256sum | cut -d' ' -f1
 }
 
+# The driver packages the mhwd layer only downloads to /opt/ght/pkg are not in
+# its database, so -Qu does not see them.
+mhwd_downloads_outdated() {
+  local conf="$1" dbdir="$2" file name ver found
+  local -A have=()
+
+  for file in "$(layer_output mhwd)"/opt/ght/pkg/*.pkg.tar*; do
+    [[ -f "$file" && "$file" != *.sig ]] || continue
+    read -r name ver < <(local_package_id "$file")
+    have[$name]="$ver"
+  done
+  ((${#have[@]} > 0)) || return 0
+
+  found="$(pacman -Sddp --print-format '%n %v' --config "$conf" --dbpath "$dbdir" "${!have[@]}" 2>/dev/null)" ||
+    return 1
+
+  while read -r name ver; do
+    if [[ -n "${have[$name]:-}" ]] && (($(vercmp "$ver" "${have[$name]}") > 0)); then
+      echo "$name"
+    fi
+  done <<<"$found"
+}
+
 # Runs in the tools tree (build.sh --packages). Syncs into mkosi's metadata
 # cache, because mkosi 27 syncs only when a cache is stale. Output lines:
 #   prefix <image> <mkosi cache path prefix>
 #   check <layer> <output|cache> clean|missing|unknown|<package>...
 packages_main() {
-  local summary="$1" image prefix main conf layer kind db dir out
+  local summary="$1" image prefix main conf layer kind db dir out result extra
   shift
 
   # The default CacheKey is &d~&r~&a~&I
@@ -225,13 +248,23 @@ packages_main() {
 
       # -Qu exits 1 both without updates and on errors, stderr tells them apart
       if out="$(pacman -Qqu --config "$conf" --dbpath "$dir" 2>"$dir.err")"; then
-        echo "check $layer $kind ${out//$'\n'/ }"
+        result="${out//$'\n'/ }"
       elif ! grep -q '^error:' "$dir.err"; then
-        echo "check $layer $kind clean"
+        result=clean
       else
         cat "$dir.err" >&2
-        echo "check $layer $kind unknown"
+        result=unknown
       fi
+
+      if [[ "$layer" == mhwd && "$kind" == output && "$result" != unknown ]]; then
+        if extra="$(mhwd_downloads_outdated "$conf" "$dir")"; then
+          [[ -z "$extra" ]] || result="${result#clean} ${extra//$'\n'/ }"
+        else
+          result=unknown
+        fi
+      fi
+
+      echo "check $layer $kind $result"
     done
   done
 }
@@ -400,6 +433,9 @@ prepare_layers() {
     if [[ "$EXPLAIN" != true ]]; then
       rm -f "$STAMPS/$layer"
       remove_output "$OUTPUT_DIR/$layer" "$(layer_output "$layer")"
+
+      # Its cache key, the stamp, stays the same on a package update rebuild
+      remove_output "$OUTPUT_DIR/.erofs/$layer".{erofs,verity,roothash,key}
       ((${#FORCE[@]} > 0)) || drop_mkosi_cache "$layer"
     fi
   done
