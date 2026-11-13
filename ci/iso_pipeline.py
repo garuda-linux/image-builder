@@ -128,7 +128,7 @@ cleanup:{edition}:
   rules:
     - if: $CI_COMMIT_REF_PROTECTED != "true"
       when: never
-    - when: always
+    - when: on_success
   variables:
     EDITION: {edition}
     GIT_STRATEGY: none
@@ -158,7 +158,7 @@ openqa:{edition}:
   variables:
     EDITION: {edition}
   script:
-    - sh ci/openqa-gate.sh "$EDITION" "{staging_url}/$ISO_NAME"
+    - bash ci/openqa-gate.sh "$EDITION" "{staging_url}/$ISO_NAME"
 """
 
 

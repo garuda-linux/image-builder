@@ -1,9 +1,9 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Usage: ci/openqa-gate.sh <edition> <iso-url>
 #   Runs the install scenario on OPENQA_HOST and waits. Exits 0 only if all
 #   jobs passed. See docs/ci.md#openqa.
 
-set -eu
+set -euo pipefail
 
 edition="${1:?usage: ci/openqa-gate.sh <edition> <iso-url>}"
 iso_url="${2:?usage: ci/openqa-gate.sh <edition> <iso-url>}"
@@ -54,10 +54,15 @@ echo "Results: $OPENQA_HOST/tests/overview?distri=garuda&version=$version&build=
 
 openqa-cli schedule --host "$OPENQA_HOST" \
   --apikey "$OPENQA_API_KEY" --apisecret "$OPENQA_API_SECRET" \
-  --monitor \
+  --monitor --poll-interval 30 \
   --param-file SCENARIO_DEFINITIONS_YAML="$scenarios" \
   DISTRI=garuda VERSION="$version" FLAVOR="$edition" ARCH=x86_64 BUILD="$build" \
   EDITION="$edition" \
   ISO="garuda-$edition-$build.iso" ISO_URL="$iso_url" \
   CASEDIR="$OPENQA_DISTRI_URL#$OPENQA_DISTRI_REF" PRODUCTDIR=. NEEDLES_DIR='%%CASEDIR%%/needles' \
-  __PIPELINE_URL="${CI_PIPELINE_URL:-}"
+  __PIPELINE_URL="${CI_PIPELINE_URL:-}" |
+  awk '
+    /^\{"blocked_by_id"/ { if ($0 == json) next; json = $0 }
+    /^Job state of job ID/ { sub(/, waiting.*/, ""); if ($0 == state) next; state = $0 }
+    { print; fflush() }
+  '

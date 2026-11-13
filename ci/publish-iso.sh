@@ -33,6 +33,11 @@ fi
   exit 1
 }
 
+[ -d "$src" ] || {
+  echo "$src does not exist, nothing to publish" >&2
+  exit 1
+}
+
 iso="$(readlink -f "$src/garuda-$edition.iso")"
 name="${iso##*/}"
 for file in "$iso" "$iso.sha256" "$src/garuda-$edition.iso.manifest" "$src/garuda-$edition.iso.spdx.json"; do
