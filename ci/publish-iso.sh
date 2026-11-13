@@ -57,6 +57,19 @@ tmp="$dest/$edition/.$kind.new"
 rm -rf "$tmp"
 mkdir -p "$tmp"
 rsync --times --chmod=D755,F644 "$iso" "$iso.sha256" "$bundle" "$tmp/"
+
+if [ "$kind" = release ]; then
+  path="image-builder/$edition/release/$name"
+  mktorrent -l 22 \
+    -a udp://tracker.opentrackr.org:1337/announce \
+    -a udp://open.stealth.si:80/announce \
+    -a udp://tracker.torrent.eu.org:451/announce \
+    -a udp://open.demonii.com:1337/announce \
+    -w "https://r2.garudalinux.org/iso/$path,https://downloads.sourceforge.net/project/garuda-linux/$path,https://iso.builds.garudalinux.org/iso/$path" \
+    -o "$tmp/$name.torrent" "$iso"
+  chmod 644 "$tmp/$name.torrent"
+fi
+
 rsync --times --chmod=F644 "$src/garuda-$edition.iso.manifest" "$tmp/$name.manifest"
 rsync --times --chmod=F644 "$src/garuda-$edition.iso.spdx.json" "$tmp/$name.spdx.json"
 # Fixed name, fetched by ci/iso_pipeline.py

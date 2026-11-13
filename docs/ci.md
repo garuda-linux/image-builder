@@ -257,9 +257,39 @@ A latest ISO has `@refs/heads/<default_branch>` instead.
 
 Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. `cleanup:<edition>` removes the staging copy after the upload.
 
+### Mirrors
+
+`mirror:<edition>` copies `/publish/iso/<edition>/release/` with `ci/mirror-iso.sh` to the paths the `?r2=1` and `?sourceforge=1` redirects of `iso.builds.garudalinux.org` point to:
+
+| Target      | Path                                                                                              | Tool             |
+| ----------- | ------------------------------------------------------------------------------------------------- | ---------------- |
+| R2          | `r2:/mirror/iso/image-builder/<edition>/release/`                                                 | `rclone sync`    |
+| SourceForge | `garuda-team@frs.sourceforge.net:/home/frs/project/garuda-linux/image-builder/<edition>/release/` | `rsync --delete` |
+
+The job runs on date tags after `publish:<edition>`, and as a manual job on the default branch. Both targets replace the directory like the local upload. A failed upload does not fail the pipeline (`allow_failure`).
+
+CI/CD variables, both of type _File_, masked and protected. A target without its variable is skipped. Without both, the job is not created:
+
+| Variable              | Content                                                                          |
+| --------------------- | -------------------------------------------------------------------------------- |
+| `R2_RCLONE_CONFIG`    | the rclone config with the `r2` remote, sops `cloudflare/r2_rclone` of infra-nix |
+| `SOURCEFORGE_SSH_KEY` | the private key of `garuda-team`, sops `keypairs/ssh_team/private` of infra-nix  |
+
+To test without touching a release, run the manual job on the default branch with these variables:
+
+| Variable         | Test value           | Default         |
+| ---------------- | -------------------- | --------------- |
+| `MIRROR_KIND`    | `latest`             | `release`       |
+| `MIRROR_ROOT`    | `image-builder-test` | `image-builder` |
+| `MIRROR_DRY_RUN` | `1` for a first run  | unset           |
+
+### Torrent
+
+`ci/publish-iso.sh` writes `<iso>.torrent` next to a release ISO with _mktorrent_, before the upload, so all three targets carry it. It has 4 MiB pieces, the trackers `tracker.opentrackr.org`, `open.stealth.si`, `tracker.torrent.eu.org` and `open.demonii.com`, and R2, SourceForge and `iso.builds.garudalinux.org` as web seeds. Nobody seeds it: clients download from the web seeds and from each other. A latest ISO gets no torrent.
+
 ## Known issues
 
-- As of November 2026, the ISOs are published to `iso.builds.garudalinux.org` only. Planned targets are the Garuda download server and SourceForge through _rsync_, and an R2 bucket. A torrent and a _zsync_ file follow once the download URLs are fixed, because both embed them.
+- A _zsync_ file is not created yet.
 - Whether the artifacts API finds the previous manifest of a job in a child pipeline is not confirmed. If not, every ISO build reports a first build in its `.changes` file.
 
 ## See also
