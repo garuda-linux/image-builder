@@ -13,6 +13,8 @@ readonly SHIM_VERSION="16.1-7"
 readonly SHIM_URL="https://kojipkgs.fedoraproject.org/packages/shim/${SHIM_VERSION%-*}/${SHIM_VERSION#*-}/x86_64/shim-x64-$SHIM_VERSION.x86_64.rpm"
 readonly SHIM_SHA512="642f7bd66f9d420fed5d5686d968a2065af445b4e7ba3d27a0a4f5852aefadd1835c485968e7bdc7cea5f377095bd3efcc8636837e3059a19cfab1c777e218f0"
 
+readonly SHIM_CA_CERTS=(ci/ms-uefi-2011.pem ci/ms-uefi-2023.pem)
+
 # The enrollment cert in the root layer, an ExtraTrees= source of mkosi.images/root
 readonly SB_TREE="$OUTPUT_DIR/.secureboot/root"
 readonly SB_CERT_PATH="usr/share/garuda/secureboot/garuda-secureboot.crt"
@@ -164,4 +166,20 @@ fetch_shim() {
   done
 
   rm -rf "$tmp"
+  check_shim_signature "$dest/shimx64.efi"
+}
+
+# Firmware only starts a shim signed by a Microsoft UEFI CA
+check_shim_signature() {
+  local shim="$1" ca
+
+  for ca in "${SHIM_CA_CERTS[@]}"; do
+    [[ -f "$ca" ]] || die "$ca missing, the Microsoft UEFI CA certificate that checks shim"
+  done
+
+  for ca in "${SHIM_CA_CERTS[@]}"; do
+    sbverify --cert "$ca" "$shim" >/dev/null 2>&1 && return 0
+  done
+
+  die "$shim has no signature of a Microsoft UEFI CA (${SHIM_CA_CERTS[*]})"
 }
