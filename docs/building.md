@@ -140,7 +140,7 @@ Every build ends with a table of its steps, also after a failure: the keyring fe
 | `old`    | images of older versions, which no link such as `garuda-mokka.iso` points to, and the `repro-check` copies |
 | `layers` | the layer outputs, erofs images and stamps. The next build installs the layers again                       |
 | `caches` | mkosi's incremental caches, keyring and repository metadata                                                |
-| `all`    | the downloaded packages, _shim_ and the tools tree                                                         |
+| `all`    | the downloaded packages, _shim_, the tools tree, `mkosi.workspace/` and the chaotic keyring and mirrorlist |
 
 It lists the paths with their sizes and asks before it removes them, `--yes` skips the question. The current images, `mkosi.cache/qemu` (the test VMs) and `mkosi.packages/` stay at every level.
 
@@ -263,7 +263,7 @@ mkosi 27 builds every sub-image an output depends on, also when its tree exists.
 > [!NOTE]
 > `mkosi summary` and `mkosi build` without these variables see no layers. Pass them with `--environment`, as `scripts/lint.sh` does.
 
-The erofs images live in `mkosi.output/.erofs/`. Their key is the layer stamp plus the erofs options, so `ISO_COMPRESSION=fast` and `max` do not share them. The image of `root`, the largest layer, is made once for all editions.
+The erofs images live in `mkosi.output/.erofs/`. Their key is the layer stamp plus the erofs options, so `ISO_COMPRESSION=fast` and `max` do not share them. The image of `root`, the largest layer, is made once for all editions. A rebuild of a layer, by any output, removes its erofs image, because a rebuild for package updates keeps the stamp.
 
 Downloaded packages stay in `mkosi.cache/packages/`.
 
@@ -295,7 +295,7 @@ flowchart LR
 - The first build has no mkosi keyring yet, so it skips the check and builds every layer. The same holds for a CI job that starts without `mkosi.cache/`.
 
 > [!NOTE]
-> The check sees only versions. A package rebuilt under the same version, and the driver packages that the `mhwd` layer downloads into its local repository instead of installing them, need `--rebuild-layer`, for example `./build.sh --rebuild-layer mhwd iso mokka`.
+> The check sees only versions. A package rebuilt under the same version needs `--rebuild-layer`, for example `./build.sh --rebuild-layer mhwd iso mokka`. The driver packages that the `mhwd` layer downloads into its local repository instead of installing them are checked by their file names: a newer version in the repositories rebuilds the layer.
 
 ## Compression
 
@@ -333,7 +333,7 @@ The first `repro-check` runs in November 2026 found the generic UKIs and the `mh
 
 ## SBOM
 
-`scripts/sbom.py` (`sbom` in the development shell) turns a package manifest into an SPDX 2.3 software bill of materials. `build.sh` writes one next to every manifest. Each pacman package becomes an SPDX package with a package URL, for example `pkg:alpm/arch/acl@2.4.0-1?arch=x86_64`. License fields are `NOASSERTION`, because the manifest does not carry them. To write one for any manifest:
+`scripts/sbom.py` (`sbom` in the development shell) turns a package manifest into an SPDX 2.3 software bill of materials. `build.sh` writes one next to every manifest. Each pacman package becomes an SPDX package with a package URL, for example `pkg:alpm/garuda/acl@2.4.0-1?arch=x86_64`. The namespace is `garuda` for every package, because the manifest does not name the repository a package came from. License fields are `NOASSERTION`, because the manifest does not carry them. To write one for any manifest:
 
 ```console
 $ sbom mkosi.output/garuda-lima.manifest garuda-lima 20261107 >garuda-lima.spdx.json

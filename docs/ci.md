@@ -10,7 +10,7 @@ A project maintainer sets the project up once:
 2. Build the builder image: run a pipeline from the web interface and start the manual `builder` job, or push a change to `ci/Containerfile`.
 3. Add a weekly pipeline schedule on the default branch under _Build > Pipeline schedules_. The weekly build picks up package updates.
 4. Enable the container registry and the package registry of the project. The build jobs use the predefined `CI_REGISTRY_PASSWORD` and `CI_JOB_TOKEN` variables.
-5. For Renovate, create a project access token with the `api` and `write_repository` scopes and the _Developer_ role, and store it as the masked CI/CD variable `RENOVATE_TOKEN`. Then add a second weekly pipeline schedule with the variable `RENOVATE` set to `true`, see [Renovate](#renovate).
+5. For Renovate, create a project access token with the `api` and `write_repository` scopes and the _Developer_ role, and store it as the masked and protected CI/CD variable `RENOVATE_TOKEN`, so only pipelines of protected refs can read it. Then add a second weekly pipeline schedule with the variable `RENOVATE` set to `true`, see [Renovate](#renovate).
 
 ### Protected refs
 
@@ -103,7 +103,7 @@ Every build job keeps the package manifest of its output for a month, together w
 - Fedora's _shim_ (`SHIM_VERSION` in `lib/secureboot.sh`), from the `shim-x64` package of Fedora rawhide on `https://mdapi.fedoraproject.org`,
 - _nix-direnv_ in `.envrc`, from the GitHub releases of `nix-community/nix-direnv`.
 
-The _shim_ and _nix-direnv_ pins carry the hash of the download. After the version bump, Renovate runs `ci/renovate-hashes.sh`, which downloads the new file and writes its hash into the same merge request. The job allows only this command (`RENOVATE_ALLOWED_COMMANDS` in `.gitlab-ci.yml`). The merge request pipeline does not build, so check a _shim_ bump with a signed ISO build before merging.
+The _shim_ and _nix-direnv_ pins carry the hash of the download. After the version bump, Renovate runs `ci/renovate-hashes.sh`, which downloads the new file and writes its hash into the same merge request. The job allows only this command (`RENOVATE_ALLOWED_COMMANDS` in `.gitlab-ci.yml`). The merge request pipeline does not build, so check a _shim_ bump with a signed ISO build before merging. A signed build fails when `shimx64.efi` has no signature of a Microsoft UEFI CA: `lib/secureboot.sh` checks it against `ci/ms-uefi-2011.pem` and `ci/ms-uefi-2023.pem`.
 
 Nothing is merged automatically. The configuration is `renovate.json`.
 
@@ -115,7 +115,7 @@ The ISO jobs are not listed in `.gitlab-ci.yml`. `ci/iso_pipeline.py` takes the 
 
 When the CI/CD variable `OPENQA_DISTRI_URL` holds the clone URL of the test repository, `ci/iso_pipeline.py` adds an `openqa:<edition>` job after each `iso:<edition>` job. The job checks out the tag or commit in `OPENQA_DISTRI_REF`, never a branch head: the tests run as root on the build host, so a new version of them is taken in on purpose by changing the variable. It runs the tests with `isotovideo` on the `nix-privileged` runner, which has KVM, in the `openqa:latest` image of the project registry. One test VM runs at a time (`resource_group: openqa-host`), next to at most one ISO build. The `openqa-image` job builds it from `ci/openqa.Containerfile`: the upstream image `registry.opensuse.org/devel/openqa/containers/isotovideo:qemu-kvm` plus `Inline::Python`, without which isotovideo cannot load the Python tests. With the build argument `BASE` set to `openqa-single-instance`, the same file builds the local web UI image of the test repository. It runs like `builder`, and only when `OPENQA_DISTRI_URL` is set. Start it once by hand before the first openQA run. See [Testing#openQA](testing.md#openqa).
 
-- The next job starts with a clean workspace, so the ISO job copies its ISO to `/cache/openqa/<pipeline>/` on the runner's cache volume. The test job deletes it at the end, and the ISO job removes directories two days or older, left by test jobs that never ran or were cancelled.
+- The next job starts with a clean workspace, so the ISO job copies its ISO to `/cache/openqa/garuda-<edition>.iso` on the runner's cache volume and writes the pipeline ID to `garuda-<edition>.iso.pipeline`. The test job deletes both at the end. An ISO left by a test job that never ran or was cancelled stays until the next build of the edition replaces it.
 - The jobs report only (`allow_failure`): a failed test does not stop publishing until the tests are stable.
 - The results stay for two weeks as artifacts: `testresults/` with the screenshots and the result of each test, `video.ogv`, `autoinst-log.txt` and `serial0`.
 
@@ -183,7 +183,9 @@ https://gitlab.com/api/v4/projects/garuda-linux%2Ftools%2Fimage-builder/packages
 
 The `uki` job uploads `garuda-<kernel>-<version>.efi`, `garuda-<kernel>-<version>-eac.efi` and their `.sha256` files to the generic package `garuda-uki` under `<version>/`, and the UKIs as `latest/garuda-<kernel>.efi` and `latest/garuda-<kernel>-eac.efi`. A signed build also uploads both UKIs and the enrollment cert under the kernel version, for example `7.3.1-1/garuda-linux-garuda.efi`, `7.3.1-1/garuda-linux-garuda-eac.efi` and `7.3.1-1/garuda-secureboot.crt`. That version is the source of the `garuda-uki` pacman package and is never overwritten: a later build of the same kernel leaves it as it is, so the sha256 sums pinned in the package stay valid, see the `garuda-uki` package in [pkgbuilds](https://gitlab.com/garuda-linux/pkgbuilds).
 
-Signing in CI: add `SB_KEY`, `SB_CERT` and `SB_CA_CERT` as protected variables of type _File_ in the project settings. GitLab then sets each variable to the path of a file with its content, which is what `build.sh` expects, see [Building#Signing](building.md#signing). Without them, the jobs build unsigned. The ISO jobs pick them up the same way. Only the signing key is in CI, the CA key stays offline.
+Signing in CI: add `SB_KEY`, `SB_CERT` and `SB_CA_CERT` as protected variables of type _File_ in the project settings, with the environment scope `signing`. Only the `uki` and `iso:<edition>` jobs name that environment (`action: access`, so no deployment is recorded), and no other job of a protected ref gets the key. GitLab then sets each variable to the path of a file with its content, which is what `build.sh` expects, see [Building#Signing](building.md#signing). Without them, the jobs build unsigned. The ISO jobs pick them up the same way. Only the signing key is in CI, the CA key stays offline.
+
+Every uploaded image and UKI has a `.sha256` file and its Sigstore bundle `.sha256.sigstore.json` next to it, also under `latest/` and the kernel version. `ci/cosign-blob.sh` signs the checksum with cosign in keyless mode, as for the ISOs, see [ISO artifacts](#iso-artifacts) for the verification. A failed signature fails the job before the upload.
 
 GitLab keeps every upload of the same file name as a duplicate and serves the newest one. Delete old duplicates under _Deploy > Package registry_ if storage matters.
 
@@ -207,7 +209,7 @@ where `<default_branch>` is the default branch of the project.
 The same job attaches two signed in-toto attestations to the image digest, also keyless:
 
 - the SPDX SBOM of the image (`--type spdxjson`), see [Building#SBOM](building.md#sbom),
-- an SLSA v1 build provenance (`--type slsaprovenance1`) from `ci/provenance.py`: the repository, commit, pipeline, job, builder image (with its digest when the image is pinned by digest) and runner that made the image.
+- an SLSA v1 build provenance (`--type slsaprovenance1`) from `ci/provenance.py`: the repository, commit, pipeline, job, builder image and runner that made the image. The builder image carries the digest that its tag had when the job wrote the provenance. The runner may have used an older cached copy of the tag.
 
 To verify and read them, use the same identity as for the signature:
 
@@ -243,11 +245,11 @@ $ sha256sum -c garuda-mokka-linux-garuda-<date>.iso.sha256
 
 A latest ISO has `@refs/heads/<default_branch>` instead.
 
-Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. The ISO stays on the runner for two days as well, in the shared state of its pipeline.
+Each upload replaces the whole directory of its kind, so an edition has at most one release and one latest ISO. A release ISO carries its tag as version, for example `garuda-mokka-linux-garuda-20261201.iso`, also when the build runs on a later day. Other branches publish nothing. The runner `stormwing-nix-privileged` mounts `/data_1/iso/iso/image-builder` of stormwing as `/publish/iso` in the job container, see `dockerExtraVolumes` in infra-nix. The copy in `/cache/publish/` is removed after the upload.
 
 ## Known issues
 
-- As of November 2026, the ISOs are not published. Planned targets are the Garuda download server and SourceForge through _rsync_, and an R2 bucket. A torrent and a _zsync_ file follow once the download URLs are fixed, because both embed them.
+- As of November 2026, the ISOs are published to `iso.builds.garudalinux.org` only. Planned targets are the Garuda download server and SourceForge through _rsync_, and an R2 bucket. A torrent and a _zsync_ file follow once the download URLs are fixed, because both embed them.
 - Whether the artifacts API finds the previous manifest of a job in a child pipeline is not confirmed. If not, every ISO build reports a first build in its `.changes` file.
 
 ## See also

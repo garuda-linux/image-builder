@@ -234,7 +234,7 @@ The file system stays mounted for the session, as the loop device holds the file
 
 ### Persistence
 
-With the `persistence` boot option, changes made in the live session survive a reboot. The initrd keeps the writable layer on an ext4 partition labelled `GARUDA_PERSIST` on the USB stick it was booted from. A partition with that label on another disk is ignored, so a disk plugged in by someone else cannot replace the live system. To use a partition on another disk, boot with `persistence=any`.
+With the `persistence` boot option, changes made in the live session survive a reboot. The initrd keeps the writable layer on an ext4 partition labelled `GARUDA_PERSIST` on the USB stick it was booted from. A partition with that label on another disk is ignored, so a disk plugged in by someone else cannot replace the live system. To use a partition on another disk, boot with `persistence=any`. Each ISO keeps its state in a directory named after its volume label, so a new version starts clean. The initrd removes nothing: at boot it lists the directories of other images with their sizes, remove them by hand to free space.
 
 When no such partition exists, the initrd creates one on the first boot with `persistence`: _systemd-repart_ adds it from `/usr/lib/garuda-live/repart.d/` in the free space behind the ISO on the USB stick it was booted from, filling the rest of the stick, and formats it. It needs at least 1 GiB of free space. The partition has its own type, so repart does not mistake it for a layer partition, and repart keeps the partitions of the ISO as they are. The initrd only changes a disk whose own volume label is the label of this ISO, so it does not touch other disks, and it never acts on a CD drive. To use another disk, create an ext4 partition labelled `GARUDA_PERSIST` there yourself and boot with `persistence=any`.
 
@@ -308,7 +308,7 @@ The `root` layer installs `garuda-systemd-boot`, the _kernel-install_ configurat
 | `/usr/share/libalpm/hooks/61-garuda-kernel-install-remove.hook` | runs `kernel-install remove` for a removed kernel                                                              |
 | `/usr/lib/systemd/system-preset/80-garuda-systemd-boot.preset`  | enables `systemd-boot-update.service`, which updates _systemd-boot_ on the ESP after a _systemd_ update        |
 
-`garuda-boot-check.service` (`desktop` layer) holds back `boot-complete.target` until the display manager runs, so a boot without a display manager counts as a failed try. See [Automatic Boot Assessment](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
+`garuda-boot-check.service` (`desktop` layer) holds back `boot-complete.target` until the display manager runs, so a boot without a display manager counts as a failed try. On a counted boot it also starts the display manager when the default target is `multi-user.target`. Installs without a display manager, for example with a TTY login, must run `systemctl disable garuda-boot-check.service`. Otherwise every new UKI sorts last after three boots. See [Automatic Boot Assessment](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
 
 `kernel-install-uki` passes the initramfs that `dracut-install-garuda` built in `/boot` to `kernel-install`, so dracut runs once per update. The kernel command line comes from `/etc/kernel/cmdline`. The UKIs land in `EFI/Linux/` on the ESP, where _systemd-boot_ finds them on its own.
 
