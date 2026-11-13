@@ -42,15 +42,15 @@ iso:{edition}:
   stage: build
   image: $BUILDER_IMAGE
   tags: [nix-privileged]
-  # Shared with .build in .gitlab-ci.yml: one build at a time on the build host
   resource_group: build-host
-  # true in push pipelines only, a push must not cancel a schedule or release build
   interruptible: {interruptible}
   timeout: 3h
   retry:
     max: 1
     when: [runner_system_failure, stuck_or_timeout_failure]
-  # Runs as root on the build host: protected refs only, as in .gitlab-ci.yml
+  environment:
+    name: signing
+    action: access
   rules:
     - if: $CI_COMMIT_REF_PROTECTED != "true"
       when: never
@@ -61,7 +61,11 @@ iso:{edition}:
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   script:
     # A release tag is its date (YYYYMMDD), the ISO carries it as its version
-    - export VERSION="${{CI_COMMIT_TAG:-$(date +%Y%m%d)}}"
+    - |
+      case "${{CI_COMMIT_TAG:-}}" in
+        [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) export VERSION="$CI_COMMIT_TAG" ;;
+        *) export VERSION="$(date +%Y%m%d)" ;;
+      esac
     - ci/shared-state.sh
     - ./build.sh iso "$EDITION"
     - ci/package-changes.sh "iso:$EDITION" "mkosi.output/garuda-$EDITION.iso.manifest"
@@ -277,6 +281,8 @@ def main():
     # balanced while CI is young. A release pipeline (web run or schedule) sets
     # ISO_COMPRESSION=max as a pipeline variable, iso:generate sees it here.
     compression = os.environ.get("ISO_COMPRESSION") or "balanced"
+    if compression not in ("fast", "balanced", "max"):
+        sys.exit(f"ISO_COMPRESSION must be fast, balanced or max, not {compression!r}")
     interruptible = "true" if os.environ.get("CI_PIPELINE_SOURCE") == "push" else "false"
     print(
         f"Editions to build: {' '.join(selected)}, openQA: {'yes' if openqa else 'no'}, compression: {compression}",

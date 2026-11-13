@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 USAGE = "usage: ci/provenance.py <output name>"
 
 
-def image_dependency(image):
-    """The builder image as a resolved dependency, with its digest when pinned."""
+def image_dependency(image, resolved=""):
+    """The builder image as a resolved dependency, with its digest when known."""
     name, _, digest = image.partition("@")
     dependency = {"uri": f"docker://{name}"}
-    algorithm, _, value = digest.partition(":")
+    algorithm, _, value = (digest or resolved).partition(":")
 
     if value:
         dependency["digest"] = {algorithm: value}
@@ -47,7 +47,7 @@ def predicate(output, env):
                     "uri": f"git+{project}@{env('CI_COMMIT_REF_NAME', '')}",
                     "digest": {"gitCommit": env("CI_COMMIT_SHA", "")},
                 },
-                image_dependency(env("CI_JOB_IMAGE", "")),
+                image_dependency(env("CI_JOB_IMAGE", ""), env("BUILDER_IMAGE_DIGEST", "")),
             ],
         },
         "runDetails": {

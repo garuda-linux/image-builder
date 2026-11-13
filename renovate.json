@@ -74,7 +74,7 @@
       "pinDigests": false
     },
     {
-      "description": "A new tools tree changes every build: let the merge request build the distrobox image",
+      "description": "A new tools tree changes every build: the default branch pipeline after the merge builds the distrobox image",
       "matchDepNames": ["archlinux-archive"],
       "commitMessageTopic": "mkosi tools tree snapshot",
       "commitMessageSuffix": "[build distrobox]"

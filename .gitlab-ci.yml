@@ -277,6 +277,10 @@ distrobox:
       cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type spdxjson \
         --predicate mkosi.output/garuda-distrobox.spdx.json "$image@$digest"
 
+      # The digest of the tag now, the runner may have used an older cached copy
+      BUILDER_IMAGE_DIGEST="$(skopeo inspect --format '{{.Digest}}' "docker://$CI_JOB_IMAGE")" ||
+        echo "No digest for $CI_JOB_IMAGE, the provenance names the tag only"
+      export BUILDER_IMAGE_DIGEST
       ci/provenance.py distrobox >mkosi.output/garuda-distrobox.provenance.json
       cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 \
         --predicate mkosi.output/garuda-distrobox.provenance.json "$image@$digest"
@@ -289,6 +293,9 @@ distrobox:
 
 lima:
   extends: .build
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   rules:
     - *protected_only
     - *no_renovate
@@ -318,24 +325,41 @@ lima:
       fi
 
       file="garuda-lima-$VERSION.qcow2"
-      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-lima"
-      upload() {
-        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$file" "$packages/$1"
-      }
-
-      upload "$VERSION/$file"
       # A fixed name under latest, so the download URL stays the same and
       # latest holds one image instead of one per day
-      upload latest/garuda-lima.qcow2
+      fixed=garuda-lima.qcow2
+      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-lima"
+      upload() {
+        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$2" "$packages/$1"
+      }
+
+      # A checksum per name, so sha256sum -c works on the downloaded file
+      for name in "$file" "$fixed"; do
+        (cd mkosi.output && sha256sum "$name" >"$name.sha256")
+        ci/cosign-blob.sh "mkosi.output/$name.sha256"
+      done
+
+      for ext in "" .sha256 .sha256.sigstore.json; do
+        upload "$VERSION/$file$ext" "$file$ext"
+        upload "latest/$fixed$ext" "$fixed$ext"
+      done
   artifacts:
     paths:
       - mkosi.output/garuda-lima.manifest
       - mkosi.output/garuda-lima.manifest.changes
       - mkosi.output/garuda-lima.spdx.json
+      - mkosi.output/garuda-lima*.qcow2.sha256
+      - mkosi.output/garuda-lima*.qcow2.sha256.sigstore.json
     expire_in: 1 month
 
 uki:
   extends: .build
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  environment:
+    name: signing
+    action: access
   rules:
     - *protected_only
     - *no_renovate
@@ -368,11 +392,18 @@ uki:
         curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$2" "$packages/$1"
       }
 
+      # A checksum per name, so sha256sum -c works on the downloaded file
       for suffix in "" -eac; do
         file="garuda-$kernel-$VERSION$suffix.efi"
-        upload "$VERSION/$file" "$file"
-        upload "$VERSION/$file.sha256" "$file.sha256"
-        upload "latest/garuda-$kernel$suffix.efi" "$file"
+        fixed="garuda-$kernel$suffix.efi"
+        (cd mkosi.output && sha256sum "$fixed" >"$fixed.sha256")
+        ci/cosign-blob.sh "mkosi.output/$file.sha256"
+        ci/cosign-blob.sh "mkosi.output/$fixed.sha256"
+
+        for ext in "" .sha256 .sha256.sigstore.json; do
+          upload "$VERSION/$file$ext" "$file$ext"
+          upload "latest/$fixed$ext" "$fixed$ext"
+        done
       done
 
       # The source of the garuda-uki package: signed UKIs per kernel version,
@@ -390,11 +421,14 @@ uki:
 
       cp "${SB_CA_CERT:-$SB_CERT}" mkosi.output/garuda-secureboot.crt
       for suffix in "" -eac; do
-        upload "$kver/garuda-$kernel$suffix.efi" "garuda-$kernel-$VERSION$suffix.efi"
+        for ext in "" .sha256 .sha256.sigstore.json; do
+          upload "$kver/garuda-$kernel$suffix.efi$ext" "garuda-$kernel$suffix.efi$ext"
+        done
       done
 
       upload "$kver/garuda-secureboot.crt" garuda-secureboot.crt
   artifacts:
     paths:
       - mkosi.output/garuda-*.efi.sha256
+      - mkosi.output/garuda-*.efi.sha256.sigstore.json
     expire_in: 1 month
