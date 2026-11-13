@@ -336,6 +336,13 @@ if flag persistence || [ "$(arg persistence)" = any ]; then
       mount --bind "/run/garuda/persist/$label" /run/garuda/rw; then
       persistent=yes
       say "persistence on $dev ($label)"
+      for other in /run/garuda/persist/*/; do
+        other="${other%/}"
+        name="${other##*/}"
+        if [ -d "$other" ] && [ "$name" != "$label" ] && [ "$name" != lost+found ]; then
+          say "persistence: $dev also holds $name of another image ($(du -sh "$other" 2>/dev/null | cut -f1)), remove it to free space"
+        fi
+      done
     else
       say "persistence: could not mount $dev, changes stay in RAM"
       umount /run/garuda/persist 2>/dev/null || true
