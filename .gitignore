@@ -4,8 +4,9 @@
 /mkosi.workspace/
 /mkosi.tools/
 /mkosi.tools.manifest
-# Local overrides, see mkosi.local.conf.example
+# Local overrides, see mkosi.local.conf.example and .env.local.example
 /mkosi.local.conf
+/.env.local
 # Local packages that replace repository versions, see docs/building.md
 /mkosi.packages/
 /mkosi.local/

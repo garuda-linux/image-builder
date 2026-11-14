@@ -10,6 +10,9 @@
 #   ./build.sh clean old|layers|caches|all [--yes]
 #     removes old images, then the layers, then the caches, then the downloads
 #     (each level includes the ones before it, shows sizes and asks first)
+#   build test iso|vm <edition> | lima | distrobox [test options]
+#   build --test[=openqa] <output> ...
+#     devshell build only: tests an image as the user, see scripts/build.sh
 #
 # Extra args go to mkosi as is, for example -E KERNEL=linux-lts.
 # Options, before the output name:
@@ -34,6 +37,7 @@
 #   BUILDER_UPDATE   with --container, when ci/Containerfile changed since the
 #                    builder image was built: ask (default, warns without a
 #                    terminal), yes (rebuild) or no (do not check)
+#   .env.local in the checkout sets defaults for these, see .env.local.example
 #
 # Needs root (mkosi, loop devices, mounts).
 
@@ -45,6 +49,10 @@ set -o errtrace
 trap 'printf "\033[1;31m==> ERROR:\033[0m %s:%s: %s\n" "${BASH_SOURCE[0]}" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 cd "$(dirname "$(readlink -f "$0")")"
+
+# shellcheck source=lib/env.sh
+source lib/env.sh
+load_env_local "$PWD"
 
 readonly SANDBOX="mkosi.sandbox"
 readonly OUTPUT_DIR="$PWD/mkosi.output" # absolute, so the paths stay valid in subshells that change directory

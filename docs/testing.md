@@ -13,6 +13,31 @@ The tests per output:
 | VM image            | `vm-test`                           | boot with UEFI and a TPM, first login with password change, desktop                                               |
 | ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                              |
 
+## From build
+
+`build test` tests the built image of an output. `--test` before the output tests it after the build:
+
+```console
+$ build test iso gnome
+$ build test iso gnome --openqa
+$ build --test iso gnome
+$ build --test=openqa iso gnome
+```
+
+| Command                                   | Runs                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------- |
+| `build test iso <edition> [options]`      | `iso-test <edition> [options]`                                            |
+| `build test iso <edition> --openqa [iso]` | `run-local.sh <edition> [iso]` of the openQA tests, see [openQA](#openqa) |
+| `build test vm <edition> [options]`       | `vm-test <edition> [options]`                                             |
+| `build test lima [options]`               | `boot-check mkosi.output/root`, then `lima-test [options]`                |
+| `build test distrobox [box name]`         | `boot-check mkosi.output/garuda-distrobox`, then `distrobox-test`         |
+
+- The tests run as the user, outside the builder container. Only `boot-check` uses _sudo_.
+- `--test=openqa` is for ISOs only. The UKI has no test.
+- `OPENQA_DISTRI`: the openQA tests checkout, default `../openqa-distri`. `run-local.sh` also reads `SCENARIO` and `ISOTOVIDEO_IMAGE`.
+- `TEST_RAM`: default RAM of `iso-test` and `vm-test`. `--ram=` wins.
+- These variables can go into `.env.local`, see [Building#Local settings](building.md#local-settings).
+
 ## Configuration check
 
 `lint` runs the pre-commit hooks, _shellcheck_ and _shfmt_ on all shell scripts, _ruff_ on the Python scripts, _yamllint_ on the YAML files, _hadolint_ on the two Containerfiles, and `mkosi summary` for every output and every edition. The mkosi check parses the configuration without building anything. The continuous integration runs `lint` before every build. To check the configuration of one edition only:
@@ -151,7 +176,7 @@ The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-d
 
 The live ISO has an openQA mode for them. `garuda.openqa` on the kernel command line, which the test types into the _systemd-boot_ editor, starts `garuda-openqa.service`:
 
-- a root shell runs on the virtio console `hvc0`, the `root-virtio-terminal` of os-autoinst, with the plain prompt `# ` and 2048 columns, so the test sends commands over that port and reads their output and exit status there, at once and independent of the keyboard layout. root is also logged in on tty2, for tests that need the screen,
+- a root shell runs on the virtio console `hvc0`, the `root-virtio-terminal` of os-autoinst, with the plain prompt `# ` and 2048 columns, so the test sends commands over that port and reads their output and exit status there, at once and independent of the keyboard layout. root is also logged in on tty9, which leaves tty2 to the GDM session of the live user,
 - `garuda-openqa: ready (<state>)` goes to the serial port once the boot is done, where `<state>` is the state of systemd.
 
 The _systemd-boot_ menu itself needs no openQA mode: OVMF mirrors the firmware console to the serial port, where the test finds the menu entries. A normal boot never starts the service. For CI, see [Continuous integration#openQA](ci.md#openqa). To create needles, `webui-local.sh` of the test repository runs the tests in a local openQA web UI with its needle editor.

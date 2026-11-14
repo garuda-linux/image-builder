@@ -5,14 +5,17 @@
 #   so the built image stays unchanged.
 #   --keep        reuse the overlay, firmware variables and TPM of the last run
 #                 instead of starting from the built image
-#   --ram=<size>  RAM of the VM, default 6G
+#   --ram=<size>  RAM of the VM, default TEST_RAM or 6G
 
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
+# shellcheck source=lib/env.sh
+source "$root/lib/env.sh"
+load_env_local "$root"
 edition=mokka
 keep=false
-ram=6G
+ram="${TEST_RAM:-6G}"
 
 for arg in "$@"; do
   case "$arg" in

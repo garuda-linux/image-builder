@@ -52,7 +52,9 @@ EOF
 
 echo "Results: $OPENQA_HOST/tests/overview?distri=garuda&version=$version&build=$build"
 
-openqa-cli schedule --host "$OPENQA_HOST" \
+# openqa-cli is Perl and block-buffers into the pipe, so awk would only see the
+# job states once the job ended
+PERL5OPT='-MIO::Handle;STDOUT->autoflush(1)' openqa-cli schedule --host "$OPENQA_HOST" \
   --apikey "$OPENQA_API_KEY" --apisecret "$OPENQA_API_SECRET" \
   --monitor --poll-interval 30 \
   --param-file SCENARIO_DEFINITIONS_YAML="$scenarios" \

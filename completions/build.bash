@@ -39,6 +39,25 @@ _garuda_build_pkg() {
   mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
 }
 
+_garuda_build_editions() {
+  (cd "$1/mkosi.images/desktop/mkosi.profiles" 2>/dev/null && printf '%s ' */ | tr -d /)
+}
+
+_garuda_build_test() {
+  local start="$1" root="$2" cur="${COMP_WORDS[COMP_CWORD]}" words=""
+  local output="${COMP_WORDS[start + 1]}" pos=$((COMP_CWORD - start))
+
+  case "$output:$pos" in
+    *:1) words="iso vm lima distrobox" ;;
+    iso:2 | vm:2) words="$(_garuda_build_editions "$root")" ;;
+    iso:*) words="--openqa --cdrom --disk --boot-disk --secure-boot --ram=" ;;
+    vm:*) words="--keep --ram=" ;;
+    lima:*) words="--keep" ;;
+  esac
+  [[ "$words" == *= ]] && compopt -o nospace 2>/dev/null
+  mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
+}
+
 _garuda_build() {
   local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD - 1]}" root i output="" pos=0
   local outputs="distrobox lima iso vm uki clean"
@@ -47,12 +66,19 @@ _garuda_build() {
   local levels="old layers caches all"
 
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
-  # Only the devshell wrapper has pkg, as its first argument, see scripts/build.sh
-  if [[ "${COMP_WORDS[0]##*/}" == build && "${COMP_WORDS[1]}" == pkg ]] && ((COMP_CWORD > 1)); then
-    _garuda_build_pkg 1 "$root"
-    return 0
+  # pkg, test and --test exist only in the devshell wrapper, see scripts/build.sh
+  if [[ "${COMP_WORDS[0]##*/}" == build ]]; then
+    if [[ "${COMP_WORDS[1]}" == pkg ]] && ((COMP_CWORD > 1)); then
+      _garuda_build_pkg 1 "$root"
+      return 0
+    fi
+    if [[ "${COMP_WORDS[1]}" == test ]] && ((COMP_CWORD > 1)); then
+      _garuda_build_test 1 "$root"
+      return 0
+    fi
+    ((COMP_CWORD == 1)) && outputs+=" pkg test"
+    options+=" --test --test=openqa"
   fi
-  [[ "${COMP_WORDS[0]##*/}" == build ]] && ((COMP_CWORD == 1)) && outputs+=" pkg"
 
   if [[ "$prev" == --rebuild-layer ]]; then
     mapfile -t COMPREPLY < <(compgen -W "$layers" -- "$cur")
@@ -75,7 +101,7 @@ _garuda_build() {
   local words=""
   case "$output:$pos" in
     :*) words="$outputs $options" ;;
-    iso:1 | vm:1) words="$(cd "$root/mkosi.images/desktop/mkosi.profiles" 2>/dev/null && printf '%s ' */ | tr -d /)" ;;
+    iso:1 | vm:1) words="$(_garuda_build_editions "$root")" ;;
     clean:1) words="$levels" ;;
     clean:2) words="--yes" ;;
   esac

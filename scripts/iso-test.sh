@@ -8,17 +8,20 @@
 #   --secure-boot  Secure Boot on, with the Microsoft keys enrolled and the
 #                  cert of the ISO in MokList, as on a PC after the enrollment.
 #                  Signed ISOs only.
-#   --ram=<size>   RAM of the VM, default 6G. copytoram needs the layer files plus 2 GiB.
+#   --ram=<size>   RAM of the VM, default TEST_RAM or 6G. copytoram needs the layer files plus 2 GiB.
 
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
+# shellcheck source=lib/env.sh
+source "$root/lib/env.sh"
+load_env_local "$root"
 edition=mokka
 cdrom=false
 disk=false
 boot_disk=false
 secure_boot=false
-ram=6G
+ram="${TEST_RAM:-6G}"
 
 for arg in "$@"; do
   case "$arg" in

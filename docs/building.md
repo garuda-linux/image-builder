@@ -33,6 +33,8 @@ On hosts without the Arch tools, such as NixOS, build inside the builder contain
 
 To change settings only on this machine, copy `mkosi.local.conf.example` to `mkosi.local.conf`, for example to set another kernel or `Incremental=no`. Git ignores the file. Options on the command line win over it, and it wins over `mkosi.conf`.
 
+Environment variables of the build and the tests go into `.env.local`, a copy of `.env.local.example`, which lists them all. `build`, `./build.sh`, `iso-test` and `vm-test` read it. The shell wins over the file. Lines are `KEY=value`, without expansion. Git ignores the file.
+
 ### Repositories
 
 The build repositories are in `mkosi.sandbox/etc/pacman.conf`, in the Garuda order: _garuda_, _core_, _extra_, _multilib_, _chaotic-aur_. The mirror is in `mkosi.sandbox/etc/pacman.d/mirrorlist`. mkosi ignores its `Mirror=` setting when this file exists.
@@ -107,14 +109,15 @@ Supported kernels have a `mkosi.images/root/mkosi.conf.d/kernel-<kernel>.conf` f
 
 Options go before the output name:
 
-| Option                    | Effect                                                                   |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `--fresh`                 | rebuilds every layer and installs all packages again                     |
-| `--rebuild-layer <layer>` | rebuilds the layer and every layer above it, can be given more than once |
-| `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                       |
-| `--container`             | runs the build in the builder container                                  |
-| `--rebuild-builder`       | builds the builder container image again (with `--container`)            |
-| `--explain`               | prints which layers a build would reuse or rebuild and why, then stops   |
+| Option                    | Effect                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| `--fresh`                 | rebuilds every layer and installs all packages again                                    |
+| `--rebuild-layer <layer>` | rebuilds the layer and every layer above it, can be given more than once                |
+| `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                                      |
+| `--container`             | runs the build in the builder container                                                 |
+| `--rebuild-builder`       | builds the builder container image again (with `--container`)                           |
+| `--explain`               | prints which layers a build would reuse or rebuild and why, then stops                  |
+| `--test`, `--test=openqa` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build) |
 
 The layers are `base`, `root`, `desktop`, `live`, `mhwd` and `live-initrd`, see [Incremental builds](#incremental-builds).
 
@@ -150,7 +153,7 @@ $ build clean layers
 
 ### Shell completion
 
-`completions/` has completion for `build` and `./build.sh`: outputs, editions, options, layers and clean levels. `nix develop` loads the bash file. direnv passes only environment variables to the shell, not completions, so with direnv link the file once:
+`completions/` has completion for `build` and `./build.sh`: outputs, editions, options, layers and clean levels, and for `build` also `build test` and `build pkg`. `nix develop` loads the bash file. direnv passes only environment variables to the shell, not completions, so with direnv link the file once:
 
 ```console
 $ ln -s "$PWD/completions/build.fish" ~/.config/fish/completions/build.fish
