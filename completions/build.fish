@@ -91,6 +91,7 @@ complete -c build -n '__garuda_build_test_at iso any' -l secure-boot -d 'Secure 
 complete -c build -n '__garuda_build_test_at iso any; or __garuda_build_test_at vm any' -l ram -x -d 'RAM of the VM'
 complete -c build -n '__garuda_build_test_at vm any; or __garuda_build_test_at lima any' -l keep -d 'keep the VM state'
 complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg' -l test -f -a openqa -d 'test the image after the build'
+complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg' -l tag -f -d 'import oci or distrobox into podman and docker'
 
 complete -c build -n 'test (count (commandline -opc)) -eq 1' -a pkg -d 'local packages with cpb'
 complete -c build -n __garuda_build_pkg_verbless -a build -d 'build packages into mkosi.packages/'

@@ -110,15 +110,16 @@ Supported kernels have a `mkosi.images/root/mkosi.conf.d/kernel-<kernel>.conf` f
 
 Options go before the output name:
 
-| Option                    | Effect                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------- |
-| `--fresh`                 | rebuilds every layer and installs all packages again                                    |
-| `--rebuild-layer <layer>` | rebuilds the layer and every layer above it, can be given more than once                |
-| `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                                      |
-| `--container`             | runs the build in the builder container                                                 |
-| `--rebuild-builder`       | builds the builder container image again (with `--container`)                           |
-| `--explain`               | prints which layers a build would reuse or rebuild and why, then stops                  |
-| `--test`, `--test=openqa` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build) |
+| Option                    | Effect                                                                                                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--fresh`                 | rebuilds every layer and installs all packages again                                                                                                                    |
+| `--rebuild-layer <layer>` | rebuilds the layer and every layer above it, can be given more than once                                                                                                |
+| `--refresh-keys`          | downloads the chaotic keyring and mirrorlist again                                                                                                                      |
+| `--container`             | runs the build in the builder container                                                                                                                                 |
+| `--rebuild-builder`       | builds the builder container image again (with `--container`)                                                                                                           |
+| `--explain`               | prints which layers a build would reuse or rebuild and why, then stops                                                                                                  |
+| `--test`, `--test=openqa` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build)                                                                                 |
+| `--tag`, `--tag=<name>`   | `build` only, `oci` and `distrobox`: imports the image into rootless podman and, with _sudo_, the docker daemon as `<name>`, default `localhost/garuda-<output>:latest` |
 
 The layers are `base`, `root`, `desktop`, `live`, `mhwd` and `live-initrd`, see [Incremental builds](#incremental-builds).
 

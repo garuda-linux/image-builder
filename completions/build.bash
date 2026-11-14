@@ -77,7 +77,7 @@ _garuda_build() {
       return 0
     fi
     ((COMP_CWORD == 1)) && outputs+=" pkg test"
-    options+=" --test --test=openqa"
+    options+=" --test --test=openqa --tag --tag="
   fi
 
   if [[ "$prev" == --rebuild-layer ]]; then

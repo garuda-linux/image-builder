@@ -9,6 +9,8 @@
 #   build test lima [lima-test options]       boot-check of root, then lima-test
 #   build test distrobox [box name]           boot-check, then distrobox-test
 #   build --test[=openqa] [build options] <output> ...   build, then test
+#   build --tag[=<name>] oci|distrobox     build, then import into podman and docker,
+#                                          default name localhost/garuda-<output>:latest
 
 set -euo pipefail
 
@@ -62,6 +64,33 @@ run_test() {
   esac
 }
 
+import_image() {
+  local oci="mkosi.output/garuda-$1" tag="$2" imported=false
+
+  if command -v podman >/dev/null; then
+    skopeo copy "oci:$oci" "containers-storage:$tag"
+    imported=true
+  else
+    echo "==> podman is not installed, skipping the podman import" >&2
+  fi
+
+  local docker
+  if docker="$(command -v docker)" && sudo "$docker" info >/dev/null 2>&1; then
+    # docker refuses zstd layers, and skopeo only recompresses into a layout, not into docker-daemon
+    local gzip
+    gzip="$(mktemp -d -p /var/tmp garuda-oci-gzip.XXXXXX)"
+    skopeo copy --dest-compress-format gzip --dest-force-compress-format "oci:$oci" "oci:$gzip:latest"
+    sudo "$(command -v skopeo)" copy "oci:$gzip:latest" "docker-daemon:$tag"
+    rm -r -- "${gzip:?}"
+    imported=true
+  else
+    echo "==> docker is not installed or not reachable, skipping the docker import" >&2
+  fi
+
+  [[ "$imported" == true ]] || die "neither podman nor docker is available for --tag"
+  echo "==> Imported $tag"
+}
+
 case "${1:-}" in
   pkg)
     shift
@@ -73,11 +102,17 @@ case "${1:-}" in
     ;;
 esac
 
-# --test is taken out here, build.sh does not know it
+# --test and --tag are taken out here, build.sh does not know them
 build_args=()
 test_kind=""
+tag=""
 while [[ $# -gt 0 && "$1" == --* ]]; do
   case "$1" in
+    --tag) tag=default ;;
+    --tag=*)
+      tag="${1#--tag=}"
+      [[ -n "$tag" ]] || die "--tag= needs a name, or use --tag for localhost/garuda-<output>:latest"
+      ;;
     --test) test_kind=default ;;
     --test=openqa) test_kind=openqa ;;
     --test=*) die "unknown test ${1#--test=}, use --test or --test=openqa" ;;
@@ -105,10 +140,16 @@ if [[ -n "$test_kind" ]]; then
   [[ "$test_kind" != openqa || "$output" == iso ]] || die "--test=openqa only tests an ISO"
 fi
 
+if [[ -n "$tag" ]]; then
+  [[ "$output" == oci || "$output" == distrobox ]] || die "--tag needs the output oci or distrobox"
+  [[ "$tag" != default ]] || tag="localhost/garuda-$output:latest"
+fi
+
 # SOURCE_DATE_EPOCH is not passed on: the Nix shell sets it to 1980
 sudo --preserve-env=VERSION,ISO_COMPRESSION,BUILDER_UPDATE,SB_KEY,SB_CERT,SB_CA_CERT \
   ./build.sh --container "${build_args[@]}" "$@"
 
+[[ -z "$tag" ]] || import_image "$output" "$tag"
 [[ -n "$test_kind" ]] || exit 0
 case "$output" in
   iso)
