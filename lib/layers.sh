@@ -170,6 +170,16 @@ mhwd_downloads_outdated() {
   done
   ((${#have[@]} > 0)) || return 0
 
+  # A local package of another version replaces its download, see the postinst of mhwd
+  while read -r file; do
+    read -r name ver < <(local_package_id "$file")
+    if [[ -n "${have[$name]:-}" && "${have[$name]}" != "$ver" ]]; then
+      echo "$name"
+      unset "have[$name]"
+    fi
+  done < <(local_package_files)
+  ((${#have[@]} > 0)) || return 0
+
   found="$(pacman -Sddp --print-format '%n %v' --config "$conf" --dbpath "$dbdir" "${!have[@]}" 2>/dev/null)" ||
     return 1
 

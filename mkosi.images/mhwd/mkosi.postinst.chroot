@@ -18,6 +18,33 @@ pacman -Syw --noconfirm --gpgdir "$ght_gpg" --cachedir "$repo" ${MHWD_PACKAGES}
 gpgconf --homedir "$ght_gpg" --kill all
 rm -rf "$ght_gpg"
 
+# <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>, the name may hold dashes
+pkg_name() {
+  local base="${1##*/}"
+  base="${base%.pkg.tar*}"
+  echo "${base%-*-*-*}"
+}
+
+# The download sees only the repositories of pacman.conf, not mkosi's local
+# repository. Packages of mkosi.packages/ ($PACKAGEDIR) replace their download.
+for local_pkg in "$PACKAGEDIR"/*.pkg.tar*; do
+  [[ -f "$local_pkg" && "$local_pkg" != *.sig ]] || continue
+
+  name="$(pkg_name "$local_pkg")"
+  replaced=false
+
+  for file in "$repo"/*.pkg.tar*; do
+    [[ "$file" != *.sig && "$(pkg_name "$file")" == "$name" ]] || continue
+    rm -f -- "$file" "$file.sig"
+    replaced=true
+  done
+
+  if [[ "$replaced" == true ]]; then
+    cp -- "$local_pkg" "$repo/"
+    echo "local package ${local_pkg##*/} replaces the download"
+  fi
+done
+
 # The .sig files stay next to the packages, repo-add puts them into the database
 packages=()
 for file in "$repo"/*.pkg.tar*; do
