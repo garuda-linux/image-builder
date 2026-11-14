@@ -9,5 +9,5 @@ command = "cosmic-greeter-start"
 user = "cosmic-greeter"
 
 [initial_session]
-command = "cosmic-session"
+command = "start-cosmic"
 user = "garuda"
