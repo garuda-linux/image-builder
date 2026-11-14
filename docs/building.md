@@ -13,6 +13,7 @@ Each command runs a script of the `scripts/` directory in the checkout, so chang
 | `build`          | runs `./build.sh --container` as root with the given arguments, `build pkg` builds local packages, see [Local packages](#local-packages) |
 | `boot-check`     | boots an image with _systemd-nspawn_, see [Testing](testing.md)                                                                          |
 | `distrobox-test` | creates a box from the built image and checks it                                                                                         |
+| `oci-test`       | checks the `oci` image in podman containers without systemd                                                                              |
 | `lima-test`      | boots the Lima image and checks it                                                                                                       |
 | `iso-test`       | boots a live ISO with _systemd-vmspawn_                                                                                                  |
 | `vm-test`        | boots the VM image of an edition with _systemd-vmspawn_                                                                                  |

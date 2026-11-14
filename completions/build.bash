@@ -48,7 +48,7 @@ _garuda_build_test() {
   local output="${COMP_WORDS[start + 1]}" pos=$((COMP_CWORD - start))
 
   case "$output:$pos" in
-    *:1) words="iso vm lima distrobox" ;;
+    *:1) words="iso vm lima distrobox oci" ;;
     iso:2 | vm:2) words="$(_garuda_build_editions "$root")" ;;
     iso:*) words="--openqa --cdrom --disk --boot-disk --secure-boot --ram=" ;;
     vm:*) words="--keep --ram=" ;;

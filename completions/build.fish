@@ -81,7 +81,7 @@ function __garuda_build_test_verbless
 end
 
 complete -c build -n 'test (count (commandline -opc)) -eq 1' -a test -d 'test a built image'
-complete -c build -n __garuda_build_test_verbless -a 'iso vm lima distrobox' -d output
+complete -c build -n __garuda_build_test_verbless -a 'iso vm lima distrobox oci' -d output
 complete -c build -n '__garuda_build_test_at iso 1; or __garuda_build_test_at vm 1' -a '(__garuda_build_editions)' -d edition
 complete -c build -n '__garuda_build_test_at iso any' -l openqa -d 'openQA install run instead of iso-test'
 complete -c build -n '__garuda_build_test_at iso any' -l cdrom -d 'ISO as CD drive'

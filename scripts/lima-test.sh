@@ -52,6 +52,7 @@ check "kernel started from a UKI (systemd-stub)" sh -c 'test -e /sys/firmware/ef
 # The image ships no keyring. pacman-init.service makes one on the first boot.
 check "own pacman keyring" sh -c 'sudo gpg --homedir /etc/pacman.d/gnupg --list-secret-keys | grep -q "^sec"'
 check "pacman syncs the repositories" sudo pacman -Sy --noconfirm
+check "garuda-update" sudo garuda-update --noconfirm
 
 if [[ "$keep" == false ]]; then
   limactl delete --force "$name"

@@ -8,6 +8,7 @@
 #   build test vm <edition> [vm-test options]
 #   build test lima [lima-test options]       boot-check of root, then lima-test
 #   build test distrobox [box name]           boot-check, then distrobox-test
+#   build test oci                            oci-test
 #   build --test[=openqa] [build options] <output> ...   build, then test
 #   build --tag[=<name>] oci|distrobox     build, then import into podman and docker,
 #                                          default name localhost/garuda-<output>:latest
@@ -58,8 +59,11 @@ run_test() {
       bash scripts/boot-check.sh mkosi.output/garuda-distrobox
       exec bash scripts/distrobox-test.sh "$@"
       ;;
+    oci)
+      exec bash scripts/oci-test.sh "$@"
+      ;;
     *)
-      die "no test for '$output', use one of: iso, vm, lima, distrobox"
+      die "no test for '$output', use one of: iso, vm, lima, distrobox, oci"
       ;;
   esac
 }
@@ -133,8 +137,8 @@ output="${1:-}"
 edition="${2:-}"
 if [[ -n "$test_kind" ]]; then
   case "$output" in
-    iso | vm | lima | distrobox) ;;
-    *) die "--test needs one of the outputs iso, vm, lima, distrobox" ;;
+    iso | vm | lima | distrobox | oci) ;;
+    *) die "--test needs one of the outputs iso, vm, lima, distrobox, oci" ;;
   esac
 
   [[ "$test_kind" != openqa || "$output" == iso ]] || die "--test=openqa only tests an ISO"

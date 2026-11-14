@@ -54,5 +54,6 @@ check "systemd runs as init" sh -c 'state="$(systemctl is-system-running --wait)
 check "Garuda os-release" grep -q '^ID=garuda$' /usr/lib/os-release
 # Only a keyring made inside the box has a secret master key
 check "own pacman keyring" sh -c 'sudo -n gpg --homedir /etc/pacman.d/gnupg --list-secret-keys | grep -q "^sec"'
+check "garuda-update" sudo -n garuda-update --noconfirm
 
 exit "$status"

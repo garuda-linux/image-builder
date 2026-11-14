@@ -90,6 +90,7 @@
             "boot-check"
             "build"
             "distrobox-test"
+            "oci-test"
             "lima-test"
             "iso-test"
             "vm-test"
@@ -130,6 +131,7 @@
               (tool "boot-check")
               (tool "build")
               (tool "distrobox-test")
+              (tool "oci-test")
               (tool "lima-test")
               (tool "iso-test")
               (tool "vm-test")

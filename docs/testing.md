@@ -7,8 +7,9 @@ The tests per output:
 | Output              | Test                                | Checks                                                                                                            |
 | ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | any                 | `lint`                              | pre-commit hooks, _shellcheck_, _shfmt_, _ruff_, _yamllint_, _hadolint_, mkosi config of every output and edition |
-| distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring                                                       |
-| Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman                                                    |
+| distrobox           | `boot-check`, `distrobox-test`      | boot, box creation, Garuda packages, sudo, systemd, keyring, _garuda-update_                                      |
+| oci                 | `oci-test`                          | os-release, keyring, pacman, _garuda-update_ in a container without systemd                                       |
+| Lima                | `boot-check` on `root`, `lima-test` | boot, SSH, btrfs layout, systemd-boot and UKI, keyring, pacman, _garuda-update_                                   |
 | ISO                 | `iso-test`                          | boot with UEFI from a virtio disk or CD, live desktop, installation, installed system                             |
 | VM image            | `vm-test`                           | boot with UEFI and a TPM, first login with password change, desktop                                               |
 | ISO, UKI, distrobox | `repro-check`                       | two fresh builds give the same bytes                                                                              |
@@ -31,6 +32,7 @@ $ build --test=openqa iso gnome
 | `build test vm <edition> [options]`       | `vm-test <edition> [options]`                                             |
 | `build test lima [options]`               | `boot-check mkosi.output/root`, then `lima-test [options]`                |
 | `build test distrobox [box name]`         | `boot-check mkosi.output/garuda-distrobox`, then `distrobox-test`         |
+| `build test oci`                          | `oci-test`                                                                |
 
 - The tests run as the user, outside the builder container. Only `boot-check` uses _sudo_.
 - `--test=openqa` is for ISOs only. The UKI has no test.
@@ -77,11 +79,19 @@ The `desktop` and `live` trees are not boot-checked. Display managers and the ha
 $ distrobox-test
 ```
 
-The first start of the box shows the output of the distrobox setup, where most problems appear. On failure, the last lines of the container log follow.
+The first start of the box shows the output of the distrobox setup, where most problems appear. On failure, the last lines of the container log follow. The last check runs `garuda-update --noconfirm`, which must succeed.
+
+## oci
+
+`oci-test` copies `mkosi.output/garuda-oci` into podman as `localhost/garuda-oci:test` and runs each check in a new container without systemd, as `podman run` and `docker run` start it: os-release, the shipped pacman keyring, a repository sync and `garuda-update --noconfirm`:
+
+```console
+$ oci-test
+```
 
 ## Lima
 
-`lima-test` starts a Lima VM from `mkosi.output/garuda-lima.qcow2` and checks SSH, the `@` subvolume, that _systemd-boot_ booted the kernel from a UKI, the pacman keyring that `pacman-init.service` made on the first boot, and a repository sync with _pacman_:
+`lima-test` starts a Lima VM from `mkosi.output/garuda-lima.qcow2` and checks SSH, the `@` subvolume, that _systemd-boot_ booted the kernel from a UKI, the pacman keyring that `pacman-init.service` made on the first boot, a repository sync with _pacman_ and `garuda-update --noconfirm`:
 
 ```console
 $ lima-test
