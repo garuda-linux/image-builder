@@ -6,15 +6,15 @@
 # - a root shell runs on the virtio console hvc0 of os-autoinst (its
 #   root-virtio-terminal). Commands go over that port, not the keyboard, so
 #   they arrive at once and do not depend on the keyboard layout.
-# - root is also logged in on tty2, for tests that need the screen.
+# - root is also logged in on tty9, for a look at the screen by hand.
 # - "garuda-openqa: ready" goes to the serial port once the system is up.
 
 set -euo pipefail
 
 serial=/dev/ttyS0
 
-mkdir -p /run/systemd/system/getty@tty2.service.d
-cat >/run/systemd/system/getty@tty2.service.d/openqa-autologin.conf <<'UNIT'
+mkdir -p /run/systemd/system/getty@tty9.service.d
+cat >/run/systemd/system/getty@tty9.service.d/openqa-autologin.conf <<'UNIT'
 [Service]
 ExecStart=
 ExecStart=-/usr/bin/agetty --noreset --noclear --autologin root - ${TERM}
@@ -48,7 +48,7 @@ Restart=always
 UNIT
 
 systemctl daemon-reload
-systemctl restart getty@tty2.service
+systemctl restart getty@tty9.service
 # Only when os-autoinst attached its virtio console (VIRTIO_CONSOLE, on by default)
 if [[ -e /dev/hvc0 ]]; then
   systemctl mask --runtime serial-getty@hvc0.service
