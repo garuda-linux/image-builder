@@ -5,14 +5,14 @@
 #   scripts/commit-scope.sh <message file>   commit-msg hook (prek, see flake.nix)
 #   scripts/commit-scope.sh --ci             the commits of a CI pipeline
 #
-# Allowed scopes: an output (distrobox, lima, vm, uki, iso), an edition from
+# Allowed scopes: an output (distrobox, oci, lima, vm, uki, iso), an edition from
 # scripts/editions.sh, a layer, or an area of the build.
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-outputs="distrobox lima vm uki iso"
+outputs="distrobox oci lima vm uki iso"
 layers="layers base root desktop live mhwd live-initrd"
 areas="build secureboot container installer openqa scripts ci docs deps"
 editions="$(scripts/editions.sh | tr '\n' ' ')"

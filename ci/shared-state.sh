@@ -14,7 +14,7 @@ tools=/cache/image-builder-tools
 if [ "${1:-}" = prune ]; then
   # Small artifact files stay: GitLab uploads them after after_script
   find "$base/mkosi.output" -mindepth 1 -maxdepth 1 \( -name 'garuda-*.iso' -o -name 'garuda-*.qcow2' \
-    -o -name 'garuda-*.efi' -o -name garuda-distrobox \) -exec rm -rf {} +
+    -o -name 'garuda-*.efi' -o -name garuda-distrobox -o -name garuda-oci -o -name 'garuda-*-tree' -o -name .oci-work \) -exec rm -rf {} +
 
   installed="$(mktemp)"
   for db in "$base"/mkosi.output/*/var/lib/pacman/local "$base"/mkosi.cache/*.cache/var/lib/pacman/local \

@@ -105,7 +105,7 @@ complete -c build -n '__garuda_build_pkg_verb rm' -a '(__garuda_build_local_pack
 
 for cmd in build build.sh
     complete -c $cmd -f
-    complete -c $cmd -n __garuda_build_no_output -a 'distrobox lima iso vm uki' -d output
+    complete -c $cmd -n __garuda_build_no_output -a 'distrobox oci lima iso vm uki' -d output
     complete -c $cmd -n __garuda_build_no_output -a clean -d 'remove old images, layers, caches'
     complete -c $cmd -n __garuda_build_no_output -l refresh-keys -d 'download the chaotic keyring again'
     complete -c $cmd -n __garuda_build_no_output -l fresh -d 'rebuild every layer'

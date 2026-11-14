@@ -1,6 +1,6 @@
 # image-builder
 
-image-builder builds Garuda Linux images with [mkosi](https://github.com/systemd/mkosi): a distrobox container image, a disk image for Lima VM tests, and the edition live ISOs that garuda-tools _buildiso_ built before. It keeps the [iso-profiles](https://gitlab.com/garuda-linux/tools/iso-profiles) model of shared packages and files plus edition-specific parts, as mkosi layers and profiles.
+image-builder builds Garuda Linux images with [mkosi](https://github.com/systemd/mkosi): a distrobox container image, a minimal OCI image for podman and docker, a disk image for Lima VM tests, and the edition live ISOs that garuda-tools _buildiso_ built before. It keeps the [iso-profiles](https://gitlab.com/garuda-linux/tools/iso-profiles) model of shared packages and files plus edition-specific parts, as mkosi layers and profiles.
 
 ## Installation
 

@@ -85,6 +85,7 @@ Give `build.sh` the output and, for an ISO or a VM image, the edition:
 
 ```console
 # ./build.sh distrobox
+# ./build.sh oci
 # ./build.sh lima
 # ./build.sh iso mokka
 # ./build.sh vm mokka
@@ -168,7 +169,7 @@ The results are in the `mkosi.output/` directory:
 
 | File                                                   | Content                                                                    |
 | ------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `garuda-distrobox/`                                    | OCI image directory with _zstd_ layers                                     |
+| `garuda-distrobox/`, `garuda-oci/`                     | OCI image directories, `base` as the shared first _zstd_ layer             |
 | `garuda-lima-<version>.qcow2`                          | disk image, systemd-boot with UKIs (UEFI only), Garuda btrfs layout        |
 | `garuda-<edition>-<kernel>-<version>.iso`              | live ISO for UEFI, USB stick and CD, with `.sha256` and `.manifest` files  |
 | `garuda-vm-<edition>-<version>.qcow2`                  | installed system of an edition for virt-manager, see [VM image](#vm-image) |

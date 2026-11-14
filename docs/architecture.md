@@ -81,11 +81,12 @@ An output is an mkosi profile in the `mkosi.profiles/` directory that picks the 
 | Output      | Profile                     | Built from      | Result in `mkosi.output/`                   |
 | ----------- | --------------------------- | --------------- | ------------------------------------------- |
 | `distrobox` | `mkosi.profiles/distrobox/` | `base`          | `garuda-distrobox/`, an OCI image directory |
+| `oci`       | `mkosi.profiles/oci/`       | `base`          | `garuda-oci/`, an OCI image directory       |
 | `lima`      | `mkosi.profiles/lima/`      | `root`          | `garuda-lima-<version>.qcow2`               |
 | `iso`       | `mkosi.profiles/iso/`       | all five layers | `garuda-<edition>-<kernel>-<version>.iso`   |
 | `uki`       | `mkosi.profiles/uki/`       | `root`          | `garuda-<kernel>-<version>.efi`, `-eac.efi` |
 
-mkosi builds the layers and the distrobox image. `build.sh` does the rest: the Lima disk layout with systemd-boot, and the ISO assembly. It only parses the command line and calls the parts in `lib/`:
+mkosi builds the layers and the trees of the outputs. `build.sh` does the rest: the Lima disk layout with systemd-boot, the ISO assembly and the OCI layers. It only parses the command line and calls the parts in `lib/`:
 
 | File                | Part                                                           |
 | ------------------- | -------------------------------------------------------------- |
@@ -98,6 +99,7 @@ mkosi builds the layers and the distrobox image. `build.sh` does the rest: the L
 | `lib/uki.sh`        | generic UKIs of the root layer, rescue and Easy Anti-Cheat     |
 | `lib/iso.sh`        | live ISO: layer diffs, erofs, dm-verity, repart                |
 | `lib/container.sh`  | the builder container (`--container`)                          |
+| `lib/oci.sh`        | OCI images: `base` as the shared first layer, the rest second  |
 
 ## Live ISO
 
@@ -264,12 +266,17 @@ The garuda-tools settings and their replacements:
 
 The images ship no pacman keyring. A keyring made at build time would give every machine made from an image the same private master key, and anyone with the image could certify keys that all of these machines trust. Each system makes its own keyring instead:
 
-| System                   | Keyring made by                               |
-| ------------------------ | --------------------------------------------- |
-| Lima, distrobox `--init` | `pacman-init.service` on the first boot       |
-| distrobox                | the `--pre-init-hooks` option at box creation |
-| live ISO                 | `garuda-live-keyring.service`                 |
-| installed system         | the Calamares _postcfg_ module                |
+| System                        | Keyring made by                                          |
+| ----------------------------- | -------------------------------------------------------- |
+| Lima, VM image                | `pacman-init.service` on the first boot                  |
+| distrobox, also with `--init` | the `--pre-init-hooks` option at box creation            |
+| live ISO                      | `garuda-live-keyring.service`                            |
+| installed system              | the Calamares _postcfg_ module                           |
+| `oci` image                   | `mkosi.profiles/oci/mkosi.postinst.chroot` at build time |
+
+On the first start of a box, `distrobox-init` runs _pacman_ before systemd starts, also with `--init`, so `pacman-init.service` comes too late for it.
+
+The `oci` image is the exception, like the Arch Linux image: `podman run` and `docker run` have no first boot that could make a keyring. Every container of one build shares its private master key, and the second layer of the image differs on every build. `repro-check` does not build it.
 
 The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot` of the `mhwd` layer checks the signatures of the driver packages when it downloads them, with a temporary keyring that it removes afterwards. On the ISO the repository is part of the dm-verity protected `mhwd` layer, so `/opt/ght/pacman-ght.conf` has `SigLevel = Never` for it, and `ght-live.service` installs the drivers before `garuda-live-keyring.service` makes the system keyring. A keyring kept in the layer would hold a new private master key on every build, and the ISO would differ between builds.
 

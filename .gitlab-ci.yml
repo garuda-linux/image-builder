@@ -222,7 +222,7 @@ distrobox:
       changes: *shared
       interruptible: false
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [mkosi.profiles/distrobox/**/*, ci/provenance.py]
+      changes: [mkosi.profiles/distrobox/**/*, lib/oci.sh, ci/provenance.py]
       interruptible: false
   script:
     - ./build.sh distrobox

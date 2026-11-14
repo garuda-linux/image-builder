@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./build.sh distrobox [mkosi args]
+#   ./build.sh oci [mkosi args]
 #   ./build.sh lima [mkosi args]
 #   ./build.sh iso <edition> [mkosi args]
 #   ./build.sh vm <edition> [mkosi args]
@@ -98,6 +99,8 @@ source lib/vm.sh
 source lib/iso.sh
 # shellcheck source=lib/uki.sh
 source lib/uki.sh
+# shellcheck source=lib/oci.sh
+source lib/oci.sh
 # shellcheck source=lib/container.sh
 source lib/container.sh
 # shellcheck source=lib/clean.sh
@@ -126,9 +129,17 @@ post_main() {
   check_secureboot_certs
 
   case "$1" in
-    distrobox)
+    distrobox | oci)
       check_presets "$OUTPUT_DIR/base"
-      timed "post: SBOM" write_sbom "$OUTPUT_DIR/garuda-distrobox.manifest" garuda-distrobox
+      if [[ "$1" == distrobox ]]; then
+        timed "post: OCI layers" oci_image distrobox /sbin/init "Garuda Linux distrobox" \
+          "Garuda Linux for distrobox, systemd as init with --init. Create it with --pre-init-hooks 'pacman-key --init && pacman-key --populate', the image has no pacman keyring." \
+          com.github.containers.toolbox=true
+      else
+        timed "post: OCI layers" oci_image oci /usr/bin/bash "Garuda Linux" \
+          "Garuda Linux base system for podman and docker. Its pacman keyring is made at build time and shared by every container."
+      fi
+      timed "post: SBOM" write_sbom "$OUTPUT_DIR/garuda-$1.manifest" "garuda-$1"
       ;;
     lima)
       timed "post: Lima disk" post_lima
@@ -217,13 +228,13 @@ main() {
   prepare_qemu_dir
 
   case "$output" in
-    distrobox)
-      MKOSI_ARGS=(--profile distrobox "$@")
+    distrobox | oci)
+      MKOSI_ARGS=(--profile "$output" "$@")
       prepare_layers "" base -- "$@"
-      remove_output "$OUTPUT_DIR/garuda-distrobox"
+      remove_output "$OUTPUT_DIR/garuda-$output" "$OUTPUT_DIR/garuda-$output-tree"
       run_mkosi
       write_stamps
-      run_post distrobox distrobox
+      run_post "$output" "$output"
       ;;
     lima)
       MKOSI_ARGS=(--profile lima "$@")

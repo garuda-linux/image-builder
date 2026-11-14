@@ -1,0 +1,7 @@
+#!/bin/bash
+# Containers have no Landlock for pacman's download sandbox. Like the Arch Linux
+# image, only that part is off.
+set -euo pipefail
+
+sed -i 's|^#DisableSandboxFilesystem$|DisableSandboxFilesystem|' /etc/pacman.conf
+grep -qx 'DisableSandboxFilesystem' /etc/pacman.conf

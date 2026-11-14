@@ -20,14 +20,27 @@ mkdir "$work/out"
 
 nspawn_root=()
 if [[ -f "$target/oci-layout" ]]; then
-  # mkosi writes a single layer. No jq: it is not on the sudo PATH everywhere.
+  # Layers in order: a file replaces a directory below it, whiteouts (.wh.<name>)
+  # delete. No jq: it is not on the sudo PATH everywhere.
   manifest="$(grep -o '"digest": *"sha256:[0-9a-f]*"' "$target/index.json" | head -n1 | grep -o '[0-9a-f]\{64\}')"
-  layer="$(sed 's/.*"layers"//' "$target/blobs/sha256/$manifest" |
-    grep -o '"digest": *"sha256:[0-9a-f]*"' | head -n1 | grep -o '[0-9a-f]\{64\}')"
-  [[ -n "$layer" ]] || fail "no layer found in $target"
-  mkdir "$work/root"
-  tar --numeric-owner --xattrs --xattrs-include='*' -xf "$target/blobs/sha256/$layer" -C "$work/root"
+  mapfile -t layers < <(sed 's/.*"layers"//' "$target/blobs/sha256/$manifest" |
+    grep -o '"digest": *"sha256:[0-9a-f]*"' | grep -o '[0-9a-f]\{64\}')
+  ((${#layers[@]})) || fail "no layer found in $target"
+
   root="$work/root"
+  mkdir "$root"
+
+  for layer in "${layers[@]}"; do
+    while IFS= read -r entry; do
+      [[ "$entry" == */ || -L "$root/$entry" || ! -d "$root/$entry" ]] || rm -rf -- "${root:?}/$entry"
+    done < <(tar -tf "$target/blobs/sha256/$layer")
+    tar --numeric-owner --xattrs --xattrs-include='*' -xf "$target/blobs/sha256/$layer" -C "$root"
+    while IFS= read -r -d '' wh; do
+      dir="${wh%/*}"
+      rm -rf -- "${dir:?}/${wh##*/.wh.}" "$wh"
+    done < <(find "$root" -name '.wh.*' -print0)
+  done
+
   nspawn_root=(--directory="$root")
 elif [[ -d "$target/usr" ]]; then
   root="$target"

@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+# The documented exception to "no keyring in an image", like the Arch Linux image.
+# Every container shares this master key, see docs/architecture.md#pacman-keyring.
+pacman-key --init
+pacman-key --populate

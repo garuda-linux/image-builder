@@ -45,6 +45,12 @@ clean_paths() {
   done
 
   echo "$OUTPUT_DIR/.erofs"
+
+  echo "$OUTPUT_DIR/.oci-work"
+  for layer in "$OUTPUT_DIR"/garuda-*-tree; do
+    echo "$layer"
+  done
+
   echo "$STAMPS"
   [[ "$level" == layers ]] && return
 
