@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Usage: virt iso|vm <edition> [--new[=<name>]] [--attach] [--disk] [--ram=<size>]
+# Usage: virt iso|vm <edition> [--new[=<name>]] [--open] [--attach] [--disk] [--ram=<size>]
 #   Starts the ISO or VM image as libvirt domain garuda-<iso|vm>-<edition> on
 #   qemu:///system, replacing an existing one. See docs/testing.md#libvirt.
 #   --new[=<name>]  another domain instead, default name with a timestamp
+#   --open          open the console in virt-manager
 #   --attach        follow the guest journal, Ctrl+C shuts the domain down
 #   --disk          ISO only: empty 30G install disk
 #   --ram=<size>    MiB or with a G suffix, default TEST_RAM or 6G
@@ -21,11 +22,12 @@ source "$root/lib/log.sh"
 kind="${1:-}"
 edition="${2:-}"
 [[ "$kind" == iso || "$kind" == vm ]] && [[ -n "$edition" && "$edition" != --* ]] ||
-  die "usage: build virt iso|vm <edition> [--new[=<name>]] [--attach] [--disk] [--ram=<size>]"
+  die "usage: build virt iso|vm <edition> [--new[=<name>]] [--open] [--attach] [--disk] [--ram=<size>]"
 shift 2
 
 name="garuda-$kind-$edition"
 new=false
+open=false
 attach=false
 disk=false
 ram="${TEST_RAM:-6G}"
@@ -33,6 +35,7 @@ for arg in "$@"; do
   case "$arg" in
     --new) new=true name="$name-$(date +%Y%m%d-%H%M%S)" ;;
     --new=*) new=true name="${arg#--new=}" ;;
+    --open) open=true ;;
     --attach) attach=true ;;
     --disk) disk=true ;;
     --ram=*) ram="${arg#--ram=}" ;;
@@ -108,6 +111,10 @@ mkdir -p "$journal"
 # Journal files on btrfs copy-on-write are slow, journal-remote warns about it
 chattr +C "$journal" 2>/dev/null || true
 
+# systemd-fstab-generator in the guest mounts the share from this credential.
+# Base64, as virt-install splits --qemu-commandline at spaces.
+fstab="$(printf 'garuda-share /mnt/garuda-share virtiofs nofail 0 0\n' | base64 -w0)"
+
 receiver=""
 if [[ "$attach" == true ]]; then
   # journald connects once at boot, so listen before the domain starts
@@ -136,14 +143,20 @@ virt-install --connect qemu:///system --name "$name" \
   --filesystem "source.dir=$share,target.dir=garuda-share,driver.type=virtiofs" \
   --vsock cid.auto=yes \
   --qemu-commandline="-smbios type=11,value=io.systemd.credential:journal.forward_to_socket=vsock-stream:2:$port" \
+  --qemu-commandline="-smbios type=11,value=io.systemd.credential.binary:fstab.extra=$fstab" \
   --noautoconsole >/dev/null
 
 log "Started $name"
 cat <<EOF
     window  virt-manager --connect qemu:///system --show-domain-console $name
-    share   $share, guest: sudo mount -t virtiofs garuda-share /mnt
+    share   $share, guest: /mnt/garuda-share
     remove  virsh -c qemu:///system undefine $name --nvram --tpm --remove-all-storage
 EOF
+
+if [[ "$open" == true ]]; then
+  command -v virt-manager >/dev/null || die "--open needs virt-manager"
+  setsid virt-manager --connect qemu:///system --show-domain-console "$name" >/dev/null 2>&1 &
+fi
 
 [[ "$attach" == true ]] || exit 0
 

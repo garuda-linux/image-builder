@@ -106,6 +106,7 @@ complete -c build -n 'test (count (commandline -opc)) -eq 1' -a virt -d 'libvirt
 complete -c build -n '__garuda_build_verbless virt' -a 'iso vm' -d output
 complete -c build -n '__garuda_build_virt_at iso 1; or __garuda_build_virt_at vm 1' -a '(__garuda_build_editions)' -d edition
 complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l new -d 'another domain, optional =<name>'
+complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l open -d 'open the console in virt-manager'
 complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l attach -d 'follow the journal, Ctrl+C shuts down'
 complete -c build -n '__garuda_build_virt_at iso any' -l disk -d 'add an install disk'
 complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l ram -x -d 'RAM of the VM'

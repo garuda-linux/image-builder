@@ -4,3 +4,4 @@ enable ght-live.service
 # Installer source for Calamares unpackfs
 enable run-garuda-install.mount
 enable garuda-openqa.service
+enable spice-vdagentd.socket

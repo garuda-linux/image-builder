@@ -55,8 +55,8 @@ _garuda_build_verb() {
     test:iso:*) words="--openqa --cdrom --disk --boot-disk --secure-boot --ram=" ;;
     test:vm:*) words="--keep --ram=" ;;
     test:lima:*) words="--keep" ;;
-    virt:iso:*) words="--new --new= --attach --disk --ram=" ;;
-    virt:vm:*) words="--new --new= --attach --ram=" ;;
+    virt:iso:*) words="--new --new= --open --attach --disk --ram=" ;;
+    virt:vm:*) words="--new --new= --open --attach --ram=" ;;
   esac
   [[ "$words" == *= ]] && compopt -o nospace 2>/dev/null
   mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")

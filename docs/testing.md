@@ -186,14 +186,15 @@ Check on the first boot:
 
 ```console
 $ build virt iso gnome
-$ build virt vm dr460nized --attach
+$ build virt vm dr460nized --open --attach
 ```
 
 - `garuda-<iso|vm>-<edition>` is replaced on every run. `--new[=<name>]` defines another domain.
+- `--open` opens the console of the domain in _virt-manager_.
 - `--attach` follows the guest journal and shuts the domain down on Ctrl+C. journald sends it over vsock (credential `journal.forward_to_socket`) to `systemd-journal-remote`, which keeps it in `~/.local/state/garuda-libvirt/<domain>/`.
 - `--disk` adds an empty 30G install disk to an ISO domain, `--ram=` sets the memory.
 - The domain writes to an overlay volume in the pool `VIRT_POOL`, network `VIRT_NETWORK` (both `default`, the network has to be active).
-- Clipboard and resizing go through SPICE and `spice-vdagent`. The share `~/.local/share/garuda-libvirt/share` mounts in the guest with `sudo mount -t virtiofs garuda-share /mnt`.
+- Clipboard goes through SPICE and `spice-vdagent`. The share `~/.local/share/garuda-libvirt/share` appears in the guest as `/mnt/garuda-share`: the credential `fstab.extra` mounts it at boot.
 
 | Task        | Command (`virsh -c qemu:///system …`)                                                     |
 | ----------- | ----------------------------------------------------------------------------------------- |
