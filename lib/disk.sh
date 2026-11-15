@@ -134,7 +134,7 @@ disk_qcow2() {
   local raw="$1" name="$2" size="${3:-}" qcow2="$OUTPUT_DIR/$2-$VERSION.qcow2"
 
   log "Converting to qcow2"
-  qemu-img convert -f raw -O qcow2 -c "$raw" "$qcow2"
+  qemu-img convert -f raw -O qcow2 -c -o compression_type=zstd "$raw" "$qcow2"
   if [[ -n "$size" ]]; then
     qemu-img resize "$qcow2" "$size" >/dev/null
   fi
