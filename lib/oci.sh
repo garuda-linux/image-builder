@@ -26,6 +26,32 @@ oci_layer() {
   echo "$digest $diff_id"
 }
 
+# Cached per base stamp and package list: a package update rebuild keeps the stamp
+oci_base_layer() {
+  local blobs="$1" cache="$OUTPUT_DIR/.oci-cache" key ids
+
+  key="$({
+    echo "${NEW_STAMP[base]}" "$SOURCE_DATE_EPOCH"
+    printf '%s\n' "$OUTPUT_DIR"/base/var/lib/pacman/local/*
+  } | sha256sum | cut -d' ' -f1)"
+
+  if [[ -z "${REBUILT[base]:-}" && -f "$cache/base.blob" && -f "$cache/base.ids" &&
+    "$(cat "$cache/base.key" 2>/dev/null)" == "$key" ]]; then
+    log "Reusing the base layer blob" >&2
+    ids="$(cat "$cache/base.ids")"
+  else
+    remove_output "$cache"
+    mkdir -p "$cache"
+    ids="$(oci_layer "$OUTPUT_DIR/base" "$cache")"
+    mv "$cache/${ids%% *}" "$cache/base.blob"
+    echo "$ids" >"$cache/base.ids"
+    echo "$key" >"$cache/base.key"
+  fi
+
+  cp --reflink=auto "$cache/base.blob" "$blobs/${ids%% *}"
+  echo "$ids"
+}
+
 # A deleted path needs no whiteout when a parent is deleted too, or when the
 # upper tree replaced a parent directory with a file or symlink
 oci_under_whiteout() {
@@ -68,7 +94,7 @@ oci_image() {
   blobs="$dir/blobs/sha256"
   mkdir -p "$blobs" "$work"
 
-  read -r -a base <<<"$(oci_layer "$OUTPUT_DIR/base" "$blobs")"
+  read -r -a base <<<"$(oci_base_layer "$blobs")"
   oci_diff "$OUTPUT_DIR/base" "$tree" "$work/diff"
   read -r -a top <<<"$(oci_layer "$work/diff" "$blobs")"
   remove_output "$work"
