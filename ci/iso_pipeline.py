@@ -33,7 +33,7 @@ PUBLISHED = "https://iso.builds.garudalinux.org/iso/image-builder/{edition}/late
 NO_ISO = """\
 no-iso:
   stage: build
-  image: alpine:3.22
+  image: alpine:3.24
   script:
     - echo "No edition changed, no ISO to build"
 """
@@ -45,10 +45,10 @@ iso:{edition}:
   tags: [nix-privileged]
   resource_group: build-host
   interruptible: {interruptible}
-  timeout: 3h
+  timeout: {timeout}
   retry:
     max: 1
-    when: [runner_system_failure, stuck_or_timeout_failure]
+    when: [runner_system_failure]
   environment:
     name: signing
     action: access
@@ -110,6 +110,7 @@ publish:{edition}:
       aud: sigstore
   variables:
     EDITION: {edition}
+    GIT_DEPTH: 1
   script:
     - stage="{staging}"
     - ci/publish-iso.sh "$EDITION" "$stage"
@@ -139,13 +140,18 @@ cleanup:{edition}:
 STAGING = "/publish/iso/$EDITION/staging/$CI_PIPELINE_ID"
 STAGING_URL = "https://iso.builds.garudalinux.org/iso/image-builder/$EDITION/staging/$CI_PIPELINE_ID"
 
+# Their base or root layer differs (lite, linux-lts): last, so the shared layers are rebuilt once per run
+BUILD_LAST = ["kde-lite", "xfce"]
+
+MIRROR_KINDS = ("release", "latest")
+MIRROR_ROOTS = ("image-builder", "image-builder-test")
+TIMEOUTS = {"fast": "1h", "balanced": "1h", "max": "3h"}
+
 
 OPENQA_JOB = """
 openqa:{edition}:
   stage: test
-  image:
-    name: registry.opensuse.org/devel/openqa/containers16.1/openqa_webui:latest
-    entrypoint: [""]
+  image: $OPENQA_CLIENT_IMAGE
   needs: ["iso:{edition}"]
   # So the timeout counts the test, not the openQA queue
   resource_group: openqa-aerialis
@@ -181,6 +187,9 @@ mirror:{edition}:
   variables:
     EDITION: {edition}
     GIT_DEPTH: 1
+    MIRROR_KIND: {kind}
+    MIRROR_ROOT: {root}
+    MIRROR_DRY_RUN: "{dry_run}"
   script:
     - ci/mirror-iso.sh "$EDITION"
 """
@@ -218,15 +227,19 @@ def published_stamp(edition):
         return None
 
 
+def ordered(names):
+    return sorted(set(names), key=lambda name: (BUILD_LAST.index(name) if name in BUILD_LAST else -1, name))
+
+
 def requested(editions, value):
     # The string form of the editions array input: names in any brackets and quotes
     names = re.findall(r"[a-z0-9-]+", value)
     if "all" in names:
-        return editions
+        return ordered(editions)
     unknown = sorted(set(names) - set(editions))
     if unknown:
         sys.exit(f"Unknown editions in BUILD_EDITIONS: {' '.join(unknown)}")
-    return sorted(set(names))
+    return ordered(names)
 
 
 def select(editions, env):
@@ -248,18 +261,18 @@ def select(editions, env):
         all_editions = True
 
     if all_editions:
-        return sorted(editions)
+        return ordered(editions)
 
     tagged = [e for e in editions if f"[build {e}]" in message]
 
     if tagged:
-        return sorted(tagged)
+        return ordered(tagged)
 
     # Against what is published, so the changes of a cancelled pipeline are not lost
     branch = env.get("CI_COMMIT_BRANCH", "")
 
     if branch and branch == env.get("CI_DEFAULT_BRANCH", ""):
-        return sorted(e for e in editions if stamp(e) != published_stamp(e))
+        return ordered(e for e in editions if stamp(e) != published_stamp(e))
 
     return []
 
@@ -286,11 +299,18 @@ def main():
 
     openqa = bool(os.environ.get("OPENQA_DISTRI_URL"))
 
-    # balanced while CI is young. A release pipeline (web run or schedule) sets
-    # ISO_COMPRESSION=max as a pipeline variable, iso:generate sees it here.
     compression = os.environ.get("ISO_COMPRESSION") or "balanced"
-    if compression not in ("fast", "balanced", "max"):
+    if compression not in TIMEOUTS:
         sys.exit(f"ISO_COMPRESSION must be fast, balanced or max, not {compression!r}")
+    kind = os.environ.get("MIRROR_KIND") or "release"
+    if kind not in MIRROR_KINDS:
+        sys.exit(f"MIRROR_KIND must be release or latest, not {kind!r}")
+    root = os.environ.get("MIRROR_ROOT") or "image-builder"
+    if root not in MIRROR_ROOTS:
+        sys.exit(f"MIRROR_ROOT must be image-builder or image-builder-test, not {root!r}")
+    dry_run = os.environ.get("MIRROR_DRY_RUN") or "false"
+    if dry_run not in ("true", "false"):
+        sys.exit(f"MIRROR_DRY_RUN must be true or false, not {dry_run!r}")
     interruptible = "true" if os.environ.get("CI_PIPELINE_SOURCE") == "push" else "false"
     print(
         f"Editions to build: {' '.join(selected)}, openQA: {'yes' if openqa else 'no'}, compression: {compression}",
@@ -306,6 +326,7 @@ def main():
             ISO_JOB.format(
                 edition=edition,
                 compression=compression,
+                timeout=TIMEOUTS[compression],
                 interruptible=interruptible,
                 staging=STAGING,
                 publish_needs=json.dumps(publish_needs),
@@ -316,7 +337,9 @@ def main():
         if openqa:
             sys.stdout.write(OPENQA_JOB.format(edition=edition, staging_url=STAGING_URL))
 
-        sys.stdout.write(MIRROR_JOB.format(edition=edition))
+        sys.stdout.write(
+            MIRROR_JOB.format(edition=edition, kind=kind, root=root, dry_run="1" if dry_run == "true" else "")
+        )
 
 
 if __name__ == "__main__":

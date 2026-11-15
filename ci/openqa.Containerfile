@@ -1,7 +1,7 @@
 # openQA images for the Garuda tests, with Inline::Python, which isotovideo
 # needs to load the Python test modules, and fixed OVMF paths. BASE selects:
-# - isotovideo:qemu-kvm (default): isotovideo alone, for the openqa:<edition>
-#   CI jobs and run-local.sh. The weekly schedule rebuilds it for updates.
+# - isotovideo:qemu-kvm (default): isotovideo alone, for run-local.sh. The
+#   openqa-image schedule rebuilds it for updates.
 # - openqa-single-instance: web UI, database and worker in one container, for
 #   webui-local.sh of the test repository (needle editor, developer mode).
 # - containers16.1/openqa_worker: the worker on aerialis (Leap 16.1).

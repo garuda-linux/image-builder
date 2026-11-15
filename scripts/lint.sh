@@ -65,7 +65,7 @@ else
 fi
 
 if command -v hadolint >/dev/null; then
-  if hadolint ci/Containerfile ci/openqa.Containerfile; then ok "hadolint"; else fail "hadolint"; fi
+  if hadolint ci/Containerfile ci/openqa.Containerfile ci/openqa-client.Containerfile; then ok "hadolint"; else fail "hadolint"; fi
 else
   echo "hadolint not found, Containerfile checks skipped (it is in the development shell and flake-check)"
 fi

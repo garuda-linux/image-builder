@@ -56,7 +56,8 @@ dir="$dest/$edition/$kind"
 tmp="$dest/$edition/.$kind.new"
 rm -rf "$tmp"
 mkdir -p "$tmp"
-rsync --times --chmod=D755,F644 "$iso" "$iso.sha256" "$bundle" "$tmp/"
+cp --reflink=auto --preserve=timestamps "$iso" "$iso.sha256" "$bundle" "$tmp/"
+chmod 644 "$tmp"/*
 
 if [ "$kind" = release ]; then
   path="image-builder/$edition/release/$name"

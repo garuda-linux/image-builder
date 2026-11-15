@@ -3,8 +3,8 @@
 #   Links mkosi.output, mkosi.cache and mkosi.workspace to /cache/image-builder/,
 #   shared by all pipelines. Jobs run one at a time (resource_group build-host).
 #   The tools tree is /cache/image-builder-tools/, replaced when its key changes.
-#   prune removes final images, uninstalled packages, older release caches and
-#   publish stages older than a day.
+#   prune removes final images, leftovers of removed layers, uninstalled
+#   packages, older release caches and publish stages older than a day.
 
 set -eu
 
@@ -16,19 +16,38 @@ if [ "${1:-}" = prune ]; then
   find "$base/mkosi.output" -mindepth 1 -maxdepth 1 \( -name 'garuda-*.iso' -o -name 'garuda-*.qcow2' \
     -o -name 'garuda-*.efi' -o -name garuda-distrobox -o -name garuda-oci -o -name 'garuda-*-tree' -o -name .oci-work \) -exec rm -rf {} +
 
+  # Leftovers of layers that mkosi.images no longer has, such as after a rename
+  for file in "$base"/mkosi.output/.stamps/* "$base"/mkosi.output/.erofs/* "$base"/mkosi.output/*.vmlinuz; do
+    [ -f "$file" ] || continue
+    name="${file##*/}"
+    name="${name%.*}"
+    case "$name" in
+      "" | garuda-*) continue ;;
+    esac
+    [ -d "mkosi.images/$name" ] && continue
+    echo "Removing the leftovers of the $name layer"
+    rm -rf "$base/mkosi.output/$name" "$base/mkosi.output/$name.vmlinuz" "$base/mkosi.output/$name.manifest" \
+      "$base/mkosi.output/.stamps/$name" "$base"/mkosi.output/.erofs/"$name".*
+  done
+
   installed="$(mktemp)"
   for db in "$base"/mkosi.output/*/var/lib/pacman/local "$base"/mkosi.cache/*.cache/var/lib/pacman/local \
     mkosi.tools/var/lib/pacman/local; do
     [ -d "$db" ] && ls "$db"
   done | sort -u >"$installed"
 
-  for file in "$base"/mkosi.cache/packages/cache/pacman/pkg/*.pkg.tar*; do
-    [ -e "$file" ] || continue
-    id="${file##*/}"
-    id="${id%.sig}"
-    id="${id%.pkg.tar*}"
-    grep -qxF "${id%-*}" "$installed" || rm -f "$file"
-  done
+  # <name>-<pkgver>-<pkgrel>-<arch>.pkg.tar.<ext>, the databases list <name>-<pkgver>-<pkgrel>
+  packages="$base/mkosi.cache/packages/cache/pacman/pkg"
+  if [ -d "$packages" ]; then
+    find "$packages" -maxdepth 1 -name '*.pkg.tar*' -printf '%f\n' | awk -v installed="$installed" '
+      BEGIN { while ((getline line < installed) > 0) keep[line] = 1 }
+      {
+        id = $0
+        sub(/\.pkg\.tar.*$/, "", id)
+        sub(/-[^-]*$/, "", id)
+        if (!(id in keep)) print
+      }' | (cd "$packages" && xargs -r -d '\n' rm -f --)
+  fi
 
   rm -f "$installed"
   find /cache/publish -mindepth 2 -maxdepth 2 -type d -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
@@ -56,7 +75,7 @@ if [ "${1:-}" = prune ]; then
     esac
   done
 
-  echo "Pruned the shared state: $(du -sh "$base" | cut -f1)"
+  echo "Pruned the shared state"
   exit 0
 fi
 key="$({
@@ -98,4 +117,4 @@ if [ "$(cat "$tools/key" 2>/dev/null)" = "$key" ]; then
   echo "Reusing the tools tree $key"
 fi
 
-echo "Sharing mkosi.output, mkosi.cache and mkosi.workspace: $(du -sh "$base" | cut -f1)"
+echo "Sharing mkosi.output, mkosi.cache and mkosi.workspace"

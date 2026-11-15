@@ -28,7 +28,8 @@ r2() {
 }
 
 sourceforge() {
-  local key attempt
+  local key attempt known_hosts
+  known_hosts="$(dirname "$0")/sourceforge-known-hosts"
 
   echo "SourceForge: $src -> frs.sourceforge.net:/home/frs/project/garuda-linux/$path"
 
@@ -37,7 +38,7 @@ sourceforge() {
 
   for attempt in 1 2 3; do
     if rsync "${dry[@]}" -rt --delete --mkpath --chmod=D755,F644 \
-      -e "ssh -i $key -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null" \
+      -e "ssh -i $key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts" \
       "$src/" "garuda-team@frs.sourceforge.net:/home/frs/project/garuda-linux/$path/"; then
       rm -f "$key"
       return 0

@@ -22,11 +22,32 @@ spec:
       description: Compression of the ISOs, max for a release
       default: balanced
       options: [balanced, max]
+    only_builder:
+      description: Build the builder image and the openQA images, nothing else
+      type: boolean
+      default: false
+    only_openqa_image:
+      description: Build the openQA images, nothing else. For their own schedule
+      type: boolean
+      default: false
+    mirror_kind:
+      description: The directory that mirror:<edition> copies, latest for a test
+      default: release
+      options: [release, latest]
+    mirror_root:
+      description: The target directory of mirror:<edition>, image-builder-test for a test
+      default: image-builder
+      options: [image-builder, image-builder-test]
+    mirror_dry_run:
+      description: mirror:<edition> only lists what it would copy
+      type: boolean
+      default: false
 ---
 stages:
   - builder
   - lint
   - build
+  - publish
 
 workflow:
   auto_cancel:
@@ -40,12 +61,13 @@ variables:
   BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
   OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
   OPENQA_WORKER_IMAGE: $CI_REGISTRY_IMAGE/openqa-worker:latest
+  OPENQA_CLIENT_IMAGE: $CI_REGISTRY_IMAGE/openqa-client:latest
   BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
   # Read by the rules below and ci/iso_pipeline.py. The space makes GitLab
   # insert the array as text, a variable cannot hold an array
   BUILD_EDITIONS: " $[[ inputs.editions ]]"
-  # A pipeline variable ISO_COMPRESSION, as older schedules set it, still wins
-  ISO_COMPRESSION: $[[ inputs.iso_compression ]]
+  ONLY_BUILDER: " $[[ inputs.only_builder ]]"
+  ONLY_OPENQA_IMAGE: " $[[ inputs.only_openqa_image ]]"
 
 # ISOs use stamps instead, see ci/iso_pipeline.py
 .paths:
@@ -64,8 +86,6 @@ variables:
     - scripts/sbom.py
     - ci/Containerfile
     - ci/shared-state.sh
-    - ci/package-changes.sh
-    - .gitlab-ci.yml
   root: &root
     - mkosi.images/root/**/*
 
@@ -88,20 +108,24 @@ variables:
   editions: &no_editions
     if: $BUILD_EDITIONS =~ /[a-z]/
     when: never
+  images: &no_images_only
+    if: $ONLY_BUILDER =~ /true/ || $ONLY_OPENQA_IMAGE =~ /true/
+    when: never
+  default_branch: &default_branch_only
+    if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+    when: never
 
 builder:
   stage: builder
   image: docker:29-cli
   tags: [dind]
   rules:
+    - *protected_only
     - *no_api
-    - *no_editions
-    - *schedule
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $ONLY_BUILDER =~ /true/
+    # changes: is always true outside push pipelines
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: [ci/Containerfile]
-    - if: $CI_PIPELINE_SOURCE == "web"
-      when: manual
-      allow_failure: true
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker build -t "$BUILDER_IMAGE" -f ci/Containerfile ci
@@ -112,16 +136,13 @@ openqa-image:
   image: docker:29-cli
   tags: [dind]
   rules:
+    - *protected_only
     - *no_api
-    - *no_editions
     - if: $OPENQA_DISTRI_URL == null || $OPENQA_DISTRI_URL == ""
       when: never
-    - *schedule
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: [ci/openqa.Containerfile]
-    - if: $CI_PIPELINE_SOURCE == "web"
-      when: manual
-      allow_failure: true
+    - if: $ONLY_BUILDER =~ /true/ || $ONLY_OPENQA_IMAGE =~ /true/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [ci/openqa.Containerfile, ci/openqa-client.Containerfile]
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker build -t "$OPENQA_IMAGE" -f ci/openqa.Containerfile ci
@@ -130,12 +151,15 @@ openqa-image:
       docker build -t "$OPENQA_WORKER_IMAGE" -f ci/openqa.Containerfile
       --build-arg BASE=registry.opensuse.org/devel/openqa/containers16.1/openqa_worker:latest ci
     - docker push "$OPENQA_WORKER_IMAGE"
+    - docker build -t "$OPENQA_CLIENT_IMAGE" -f ci/openqa-client.Containerfile ci
+    - docker push "$OPENQA_CLIENT_IMAGE"
 
 lint:
   stage: lint
   image: $BUILDER_IMAGE
   interruptible: true
   rules:
+    - *no_images_only
     # The distrobox, Lima and UKI jobs of the default branch wait for it
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       interruptible: false
@@ -150,6 +174,7 @@ flake-check:
   tags: [nix]
   interruptible: true
   rules:
+    - *no_images_only
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       interruptible: false
     - when: on_success
@@ -163,10 +188,16 @@ iso:generate:
   image: $BUILDER_IMAGE
   interruptible: true
   rules:
+    - *no_images_only
     - *schedule
     - *web
     - when: on_success
   script:
+    # Set here from the inputs, so a pipeline variable of the same name has no effect
+    - export ISO_COMPRESSION="$[[ inputs.iso_compression ]]"
+    - export MIRROR_KIND="$[[ inputs.mirror_kind ]]"
+    - export MIRROR_ROOT="$[[ inputs.mirror_root ]]"
+    - export MIRROR_DRY_RUN="$[[ inputs.mirror_dry_run ]]"
     - ci/iso_pipeline.py >iso-pipeline.yml
   artifacts:
     paths: [iso-pipeline.yml]
@@ -176,10 +207,11 @@ iso:
   stage: build
   needs: [iso:generate, lint, flake-check]
   rules:
+    - *no_images_only
     - when: on_success
   variables:
     BUILDER_IMAGE: $CI_REGISTRY_IMAGE/builder:latest
-    OPENQA_IMAGE: $CI_REGISTRY_IMAGE/openqa:latest
+    OPENQA_CLIENT_IMAGE: $CI_REGISTRY_IMAGE/openqa-client:latest
   trigger:
     include:
       - artifact: iso-pipeline.yml
@@ -192,10 +224,10 @@ iso:
   tags: [nix-privileged]
   resource_group: build-host
   interruptible: true
-  timeout: 3h
+  timeout: 1h
   retry:
     max: 1
-    when: [runner_system_failure, stuck_or_timeout_failure]
+    when: [runner_system_failure]
   variables:
     RUNNER_GENERATE_ARTIFACTS_METADATA: "true"
   before_script:
@@ -207,11 +239,9 @@ iso:
 
 distrobox:
   extends: .build
-  id_tokens:
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   rules:
     - *protected_only
+    - *no_images_only
     - *no_api
     - *no_editions
     - *schedule
@@ -228,58 +258,42 @@ distrobox:
     - ./build.sh distrobox
     - scripts/boot-check.sh mkosi.output/garuda-distrobox
     - ci/package-changes.sh distrobox mkosi.output/garuda-distrobox.manifest
+    - echo "VERSION=$VERSION" >build.env
     - |
       if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
         echo "Not the default branch: built and checked, not published"
         exit 0
       fi
 
-      image="$CI_REGISTRY_IMAGE/garuda-distrobox"
-      echo "$CI_REGISTRY_PASSWORD" | skopeo login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-      push() {
-        for attempt in 1 2 3 4 5; do
-          skopeo copy --retry-times 3 \
-            oci:mkosi.output/garuda-distrobox "docker://$image:$1" && return 0
-          echo "push of $1 failed (attempt $attempt of 5), retrying in 30 seconds"
-          sleep 30
-        done
-        return 1
-      }
-      push latest
-
-      if skopeo inspect --raw "docker://$image:$VERSION" >/dev/null 2>&1; then
-        echo "$VERSION exists already and stays as it is"
-      else
-        push "$VERSION"
-      fi
-      digest="$(skopeo inspect --format '{{.Digest}}' "docker://$image:latest")"
-
-      echo "$CI_REGISTRY_PASSWORD" | cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
-      cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$image@$digest"
-      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type spdxjson \
-        --predicate mkosi.output/garuda-distrobox.spdx.json "$image@$digest"
-
       # The digest of the tag now, the runner may have used an older cached copy
-      BUILDER_IMAGE_DIGEST="$(skopeo inspect --format '{{.Digest}}' "docker://$CI_JOB_IMAGE")" ||
+      auth="$(mktemp -d)/auth.json"
+      echo "$CI_REGISTRY_PASSWORD" | skopeo login --authfile "$auth" --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      BUILDER_IMAGE_DIGEST="$(skopeo inspect --authfile "$auth" --format '{{.Digest}}' "docker://$CI_JOB_IMAGE")" ||
         echo "No digest for $CI_JOB_IMAGE, the provenance names the tag only"
+      rm -rf "${auth%/*}"
       export BUILDER_IMAGE_DIGEST
       ci/provenance.py distrobox >mkosi.output/garuda-distrobox.provenance.json
-      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 \
-        --predicate mkosi.output/garuda-distrobox.provenance.json "$image@$digest"
+
+      # after_script prunes the image from mkosi.output
+      stage="/cache/publish/distrobox/$CI_PIPELINE_ID"
+      rm -rf "$stage"
+      mkdir -p "$stage"
+      cp -a --reflink=auto mkosi.output/garuda-distrobox mkosi.output/garuda-distrobox.spdx.json \
+        mkosi.output/garuda-distrobox.provenance.json "$stage/"
   artifacts:
     paths:
       - mkosi.output/garuda-distrobox.manifest
       - mkosi.output/garuda-distrobox.manifest.changes
       - mkosi.output/garuda-distrobox.spdx.json
+    reports:
+      dotenv: build.env
     expire_in: 1 month
 
 lima:
   extends: .build
-  id_tokens:
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   rules:
     - *protected_only
+    - *no_images_only
     - *no_api
     - *no_editions
     - *schedule
@@ -299,6 +313,7 @@ lima:
     - ./build.sh lima
     - scripts/boot-check.sh mkosi.output/root
     - ci/package-changes.sh lima mkosi.output/garuda-lima.manifest
+    - echo "VERSION=$VERSION" >build.env
     - |
       if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
         echo "Not the default branch: built and checked, not published"
@@ -309,40 +324,36 @@ lima:
       # A fixed name under latest, so the download URL stays the same and
       # latest holds one image instead of one per day
       fixed=garuda-lima.qcow2
-      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-lima"
-      upload() {
-        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$2" "$packages/$1"
-      }
 
       # A checksum per name, so sha256sum -c works on the downloaded file
       for name in "$file" "$fixed"; do
         (cd mkosi.output && sha256sum "$name" >"$name.sha256")
-        ci/cosign-blob.sh "mkosi.output/$name.sha256"
       done
 
-      for ext in "" .sha256 .sha256.sigstore.json; do
-        upload "$VERSION/$file$ext" "$file$ext"
-        upload "latest/$fixed$ext" "$fixed$ext"
-      done
+      # after_script prunes the image from mkosi.output
+      stage="/cache/publish/lima/$CI_PIPELINE_ID"
+      rm -rf "$stage"
+      mkdir -p "$stage"
+      cp --reflink=auto "mkosi.output/$file" "mkosi.output/$file.sha256" "mkosi.output/$fixed.sha256" "$stage/"
+      ln -s "$file" "$stage/$fixed"
   artifacts:
     paths:
       - mkosi.output/garuda-lima.manifest
       - mkosi.output/garuda-lima.manifest.changes
       - mkosi.output/garuda-lima.spdx.json
       - mkosi.output/garuda-lima*.qcow2.sha256
-      - mkosi.output/garuda-lima*.qcow2.sha256.sigstore.json
+    reports:
+      dotenv: build.env
     expire_in: 1 month
 
 uki:
   extends: .build
-  id_tokens:
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   environment:
     name: signing
     action: access
   rules:
     - *protected_only
+    - *no_images_only
     - *no_api
     - *no_editions
     - *schedule
@@ -361,24 +372,154 @@ uki:
   script:
     - ./build.sh uki
     - |
+      kernel="$(cat mkosi.output/root/usr/lib/modules/*/pkgbase)"
+      kver="$(pacman -Q --dbpath mkosi.output/root/var/lib/pacman "$kernel" | cut -d' ' -f2)"
+      printf '%s\n' "VERSION=$VERSION" "UKI_KERNEL=$kernel" "UKI_KERNEL_VERSION=$kver" >build.env
+
       if [ "$CI_COMMIT_BRANCH" != "$CI_DEFAULT_BRANCH" ]; then
         echo "Not the default branch: built, not published"
         exit 0
       fi
 
-      kernel="$(cat mkosi.output/root/usr/lib/modules/*/pkgbase)"
-      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-uki"
-      upload() {
-        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "mkosi.output/$2" "$packages/$1"
-      }
+      # after_script prunes the UKIs from mkosi.output
+      stage="/cache/publish/uki/$CI_PIPELINE_ID"
+      rm -rf "$stage"
+      mkdir -p "$stage"
 
       # A checksum per name, so sha256sum -c works on the downloaded file
       for suffix in "" -eac; do
         file="garuda-$kernel-$VERSION$suffix.efi"
         fixed="garuda-$kernel$suffix.efi"
         (cd mkosi.output && sha256sum "$fixed" >"$fixed.sha256")
-        ci/cosign-blob.sh "mkosi.output/$file.sha256"
-        ci/cosign-blob.sh "mkosi.output/$fixed.sha256"
+        cp --reflink=auto "mkosi.output/$file" "mkosi.output/$file.sha256" "mkosi.output/$fixed.sha256" "$stage/"
+        ln -s "$file" "$stage/$fixed"
+      done
+
+      # Its presence tells publish:uki that the UKIs are signed
+      if [ -n "${SB_KEY:-}" ]; then
+        cp "${SB_CA_CERT:-$SB_CERT}" "$stage/garuda-secureboot.crt"
+      fi
+  artifacts:
+    paths:
+      - mkosi.output/garuda-*.efi.sha256
+    reports:
+      dotenv: build.env
+    expire_in: 1 month
+
+# The only jobs with the Sigstore token and the registry login, they run nothing of a build
+.publish:
+  stage: publish
+  image: $BUILDER_IMAGE
+  tags: [nix-privileged] # /cache
+  interruptible: false
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    GIT_DEPTH: 1
+
+publish:distrobox:
+  extends: .publish
+  needs: [distrobox]
+  rules:
+    - *default_branch_only
+    - !reference [distrobox, rules]
+  script:
+    - |
+      stage="/cache/publish/distrobox/$CI_PIPELINE_ID"
+      image="$CI_REGISTRY_IMAGE/garuda-distrobox"
+      echo "$CI_REGISTRY_PASSWORD" | skopeo login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      push() {
+        tag="$1"
+        shift
+        for attempt in 1 2 3 4 5; do
+          skopeo copy --retry-times 3 "$@" \
+            "oci:$stage/garuda-distrobox" "docker://$image:$tag" && return 0
+          echo "push of $tag failed (attempt $attempt of 5), retrying in 30 seconds"
+          sleep 30
+        done
+        return 1
+      }
+      # The digest of the pushed manifest, not of whatever the tag names later
+      push latest --digestfile digest
+      digest="$(cat digest)"
+      case "$digest" in
+        sha256:*) ;;
+        *)
+          echo "No digest of the pushed image" >&2
+          exit 1
+          ;;
+      esac
+
+      if skopeo inspect --raw "docker://$image:$VERSION" >/dev/null 2>&1; then
+        echo "$VERSION exists already and stays as it is"
+      else
+        push "$VERSION"
+      fi
+
+      echo "$CI_REGISTRY_PASSWORD" | cosign login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+      cosign sign --yes --identity-token "$SIGSTORE_ID_TOKEN" "$image@$digest"
+      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type spdxjson \
+        --predicate "$stage/garuda-distrobox.spdx.json" "$image@$digest"
+      cosign attest --yes --identity-token "$SIGSTORE_ID_TOKEN" --type slsaprovenance1 \
+        --predicate "$stage/garuda-distrobox.provenance.json" "$image@$digest"
+
+      rm -rf "$stage"
+
+publish:lima:
+  extends: .publish
+  needs: [lima]
+  rules:
+    - *default_branch_only
+    - !reference [lima, rules]
+  script:
+    - |
+      stage="/cache/publish/lima/$CI_PIPELINE_ID"
+      file="garuda-lima-$VERSION.qcow2"
+      fixed=garuda-lima.qcow2
+      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-lima"
+      upload() {
+        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$stage/$2" "$packages/$1"
+      }
+
+      for name in "$file" "$fixed"; do
+        ci/cosign-blob.sh "$stage/$name.sha256"
+      done
+
+      for ext in "" .sha256 .sha256.sigstore.json; do
+        upload "$VERSION/$file$ext" "$file$ext"
+        upload "latest/$fixed$ext" "$fixed$ext"
+      done
+
+      mkdir -p mkosi.output
+      cp "$stage"/*.sigstore.json mkosi.output/
+      rm -rf "$stage"
+  artifacts:
+    paths:
+      - mkosi.output/garuda-lima*.qcow2.sha256.sigstore.json
+    expire_in: 1 month
+
+publish:uki:
+  extends: .publish
+  needs: [uki]
+  rules:
+    - *default_branch_only
+    - !reference [uki, rules]
+  script:
+    - |
+      stage="/cache/publish/uki/$CI_PIPELINE_ID"
+      kernel="$UKI_KERNEL"
+      kver="$UKI_KERNEL_VERSION"
+      packages="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/garuda-uki"
+      upload() {
+        curl --fail --retry 5 --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$stage/$2" "$packages/$1"
+      }
+
+      for suffix in "" -eac; do
+        file="garuda-$kernel-$VERSION$suffix.efi"
+        fixed="garuda-$kernel$suffix.efi"
+        ci/cosign-blob.sh "$stage/$file.sha256"
+        ci/cosign-blob.sh "$stage/$fixed.sha256"
 
         for ext in "" .sha256 .sha256.sigstore.json; do
           upload "$VERSION/$file$ext" "$file$ext"
@@ -388,27 +529,35 @@ uki:
 
       # The source of the garuda-uki package: signed UKIs per kernel version,
       # never overwritten, so a pinned sha256 in its PKGBUILD stays valid
-      if [ -z "${SB_KEY:-}" ]; then
+      if [ ! -f "$stage/garuda-secureboot.crt" ]; then
         echo "Unsigned build: nothing under the kernel version"
-        exit 0
+      else
+        status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+          --header "JOB-TOKEN: $CI_JOB_TOKEN" "$packages/$kver/garuda-$kernel.efi")" || status=000
+        case "$status" in
+          2?? | 3??)
+            echo "$kver exists already and stays as it is"
+            ;;
+          404)
+            for suffix in "" -eac; do
+              for ext in "" .sha256 .sha256.sigstore.json; do
+                upload "$kver/garuda-$kernel$suffix.efi$ext" "garuda-$kernel$suffix.efi$ext"
+              done
+            done
+
+            upload "$kver/garuda-secureboot.crt" garuda-secureboot.crt
+            ;;
+          *)
+            echo "Cannot tell whether $kver exists (HTTP $status), nothing uploaded under it" >&2
+            exit 1
+            ;;
+        esac
       fi
 
-      kver="$(pacman -Q --dbpath mkosi.output/root/var/lib/pacman "$kernel" | cut -d' ' -f2)"
-      if curl --fail --silent --output /dev/null --header "JOB-TOKEN: $CI_JOB_TOKEN" "$packages/$kver/garuda-$kernel.efi"; then
-        echo "$kver exists already and stays as it is"
-        exit 0
-      fi
-
-      cp "${SB_CA_CERT:-$SB_CERT}" mkosi.output/garuda-secureboot.crt
-      for suffix in "" -eac; do
-        for ext in "" .sha256 .sha256.sigstore.json; do
-          upload "$kver/garuda-$kernel$suffix.efi$ext" "garuda-$kernel$suffix.efi$ext"
-        done
-      done
-
-      upload "$kver/garuda-secureboot.crt" garuda-secureboot.crt
+      mkdir -p mkosi.output
+      cp "$stage"/*.sigstore.json mkosi.output/
+      rm -rf "$stage"
   artifacts:
     paths:
-      - mkosi.output/garuda-*.efi.sha256
       - mkosi.output/garuda-*.efi.sha256.sigstore.json
     expire_in: 1 month
