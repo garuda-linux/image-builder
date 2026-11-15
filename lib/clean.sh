@@ -30,14 +30,28 @@ clean_old_images() {
   done
 }
 
+stale_layers() {
+  local file name
+
+  for file in "$STAMPS"/* "$OUTPUT_DIR"/.erofs/* "$OUTPUT_DIR"/*.vmlinuz; do
+    [[ -f "$file" ]] || continue
+    name="${file##*/}"
+    name="${name%.*}"
+    if [[ -n "$name" && "$name" != garuda-* && -z "${LAYER_BELOW[$name]+known}" ]]; then
+      echo "$name"
+    fi
+  done | sort -u
+}
+
 clean_paths() {
-  local level="$1" layer
+  local level="$1" layer stale=()
 
   clean_old_images
   echo "$PWD/mkosi.cache/repro"
   [[ "$level" == old ]] && return
 
-  for layer in "${!LAYER_BELOW[@]}"; do
+  mapfile -t stale < <(stale_layers)
+  for layer in "${!LAYER_BELOW[@]}" "${stale[@]}"; do
     echo "$OUTPUT_DIR/$layer"
     layer_output "$layer"
     echo "$OUTPUT_DIR/$layer.vmlinuz"
@@ -47,6 +61,7 @@ clean_paths() {
   echo "$OUTPUT_DIR/.erofs"
 
   echo "$OUTPUT_DIR/.oci-work"
+  echo "$OUTPUT_DIR/.oci-cache"
   for layer in "$OUTPUT_DIR"/garuda-*-tree; do
     echo "$layer"
   done
