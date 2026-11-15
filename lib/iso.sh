@@ -151,7 +151,7 @@ boot_profiles() {
 # line, so Secure Boot reaches every block of the layers. No quiet or splash.
 build_live_uki() {
   local tree="$1" esp="$2" kver="$3" label="$4" verity="$5" edition="$6" initrd
-  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1"
+  local common="garuda.label=$label garuda.verity=$verity rd.systemd.gpt_auto=0 systemd.show_status=1 fbcon=font:TER16x32"
 
   initrd="$(layer_output live-initrd)"
   [[ -f "$initrd" ]] || die "$initrd not found"
