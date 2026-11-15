@@ -43,16 +43,20 @@ _garuda_build_editions() {
   (cd "$1/mkosi.images/desktop/mkosi.profiles" 2>/dev/null && printf '%s ' */ | tr -d /)
 }
 
-_garuda_build_test() {
-  local start="$1" root="$2" cur="${COMP_WORDS[COMP_CWORD]}" words=""
+# _garuda_build_verb test|virt <start> <root>
+_garuda_build_verb() {
+  local verb="$1" start="$2" root="$3" cur="${COMP_WORDS[COMP_CWORD]}" words=""
   local output="${COMP_WORDS[start + 1]}" pos=$((COMP_CWORD - start))
 
-  case "$output:$pos" in
-    *:1) words="iso vm lima distrobox oci" ;;
-    iso:2 | vm:2) words="$(_garuda_build_editions "$root")" ;;
-    iso:*) words="--openqa --cdrom --disk --boot-disk --secure-boot --ram=" ;;
-    vm:*) words="--keep --ram=" ;;
-    lima:*) words="--keep" ;;
+  case "$verb:$output:$pos" in
+    test:*:1) words="iso vm lima distrobox oci" ;;
+    virt:*:1) words="iso vm" ;;
+    *:iso:2 | *:vm:2) words="$(_garuda_build_editions "$root")" ;;
+    test:iso:*) words="--openqa --cdrom --disk --boot-disk --secure-boot --ram=" ;;
+    test:vm:*) words="--keep --ram=" ;;
+    test:lima:*) words="--keep" ;;
+    virt:iso:*) words="--new --new= --attach --disk --ram=" ;;
+    virt:vm:*) words="--new --new= --attach --ram=" ;;
   esac
   [[ "$words" == *= ]] && compopt -o nospace 2>/dev/null
   mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
@@ -66,17 +70,17 @@ _garuda_build() {
   local levels="old layers caches all"
 
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
-  # pkg, test and --test exist only in the devshell wrapper, see scripts/build.sh
+  # pkg, test, virt and --test exist only in the devshell wrapper, see scripts/build.sh
   if [[ "${COMP_WORDS[0]##*/}" == build ]]; then
     if [[ "${COMP_WORDS[1]}" == pkg ]] && ((COMP_CWORD > 1)); then
       _garuda_build_pkg 1 "$root"
       return 0
     fi
-    if [[ "${COMP_WORDS[1]}" == test ]] && ((COMP_CWORD > 1)); then
-      _garuda_build_test 1 "$root"
+    if [[ "${COMP_WORDS[1]}" == test || "${COMP_WORDS[1]}" == virt ]] && ((COMP_CWORD > 1)); then
+      _garuda_build_verb "${COMP_WORDS[1]}" 1 "$root"
       return 0
     fi
-    ((COMP_CWORD == 1)) && outputs+=" pkg test"
+    ((COMP_CWORD == 1)) && outputs+=" pkg test virt"
     options+=" --test --test=openqa --tag --tag="
   fi
 

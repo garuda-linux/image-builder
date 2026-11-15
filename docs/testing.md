@@ -180,6 +180,29 @@ Check on the first boot:
 - _pacman_ works, with the keyring that `pacman-init.service` made.
 - `/usr/lib/garuda/garuda-release` names the edition, `hostnamectl` shows `garuda-<edition>`.
 
+## libvirt
+
+`build virt` boots the ISO or VM image of an edition as a libvirt domain on `qemu:///system`. Unlike `iso-test` and `vm-test`, the domain stays in libvirt, opens in _virt-manager_ and can be controlled with `virsh`:
+
+```console
+$ build virt iso gnome
+$ build virt vm dr460nized --attach
+```
+
+- `garuda-<iso|vm>-<edition>` is replaced on every run. `--new[=<name>]` defines another domain.
+- `--attach` follows the guest journal and shuts the domain down on Ctrl+C. journald sends it over vsock (credential `journal.forward_to_socket`) to `systemd-journal-remote`, which keeps it in `~/.local/state/garuda-libvirt/<domain>/`.
+- `--disk` adds an empty 30G install disk to an ISO domain, `--ram=` sets the memory.
+- The domain writes to an overlay volume in the pool `VIRT_POOL`, network `VIRT_NETWORK` (both `default`, the network has to be active).
+- Clipboard and resizing go through SPICE and `spice-vdagent`. The share `~/.local/share/garuda-libvirt/share` mounts in the guest with `sudo mount -t virtiofs garuda-share /mnt`.
+
+| Task        | Command (`virsh -c qemu:///system …`)                                                     |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| screenshot  | `screenshot <domain> out.ppm`                                                             |
+| keys        | `send-key <domain> KEY_LEFTALT KEY_F2`                                                    |
+| pointer     | `qemu-monitor-command <domain> '{"execute":"input-send-event",…}'` (USB tablet, absolute) |
+| guest shell | `qemu-agent-command <domain> '{"execute":"guest-exec",…}'`                                |
+| IP address  | `domifaddr <domain> --source agent`                                                       |
+
 ## openQA
 
 The [openQA](https://open.qa) tests live in their own repository, _os-autoinst-distri-garuda_. CI runs them on the openQA instance on aerialis as the gate before an ISO is published. Locally they run with `isotovideo` alone through its `run-local.sh`. In one job, they test the live ISO (the _systemd-boot_ menu, the boot into the live session and checks inside it), an unattended installation with Calamares on an empty 40 GB disk, and the installed system after a reboot from the disk. For the installation, the test turns the Calamares configuration of the ISO into an unattended one, see the README of the test repository.

@@ -108,6 +108,7 @@
           ];
 
           deps = [
+            "e2fsprogs"
             "git"
             "hadolint"
             "jq"
@@ -139,6 +140,7 @@
               (tool "lint")
               (pytool "manifest-diff" "scripts/manifest_diff.py")
               (pytool "sbom" "scripts/sbom.py")
+              e2fsprogs # chattr for build virt
               git
               hadolint
               jq

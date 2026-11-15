@@ -9,6 +9,7 @@
 #   build test lima [lima-test options]       boot-check of root, then lima-test
 #   build test distrobox [box name]           boot-check, then distrobox-test
 #   build test oci                            oci-test
+#   build virt iso|vm <edition> [virt options]   libvirt domain on qemu:///system, see scripts/virt.sh
 #   build --test[=openqa] [build options] <output> ...   build, then test
 #   build --tag[=<name>] oci|distrobox     build, then import into podman and docker,
 #                                          default name localhost/garuda-<output>:latest
@@ -103,6 +104,10 @@ case "${1:-}" in
   test)
     shift
     run_test "$@"
+    ;;
+  virt)
+    shift
+    exec bash scripts/virt.sh "$@"
     ;;
 esac
 

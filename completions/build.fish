@@ -65,23 +65,32 @@ function __garuda_build_local_packages
     end
 end
 
-# build test <output> ...: only the devshell wrapper has it, as its first argument
-# __garuda_build_test_at <output> <n>: the next word is argument n after "test <output>"
-function __garuda_build_test_at
+# build test|virt <output> ...: only the devshell wrapper has them, as its first argument
+# __garuda_build_verb_at <verb> <output> <n>: the next word is argument n after "<verb> <output>"
+function __garuda_build_verb_at
     set -l words (commandline -opc)
-    test "$words[2]" = test; or return 1
-    test (count $words) -ge 3; and test "$words[3]" = $argv[1]; or return 1
-    test $argv[2] = any; and return 0
-    test (count $words) -eq (math $argv[2] + 2)
+    test "$words[2]" = $argv[1]; or return 1
+    test (count $words) -ge 3; and test "$words[3]" = $argv[2]; or return 1
+    test $argv[3] = any; and return 0
+    test (count $words) -eq (math $argv[3] + 2)
 end
 
-function __garuda_build_test_verbless
+function __garuda_build_test_at
+    __garuda_build_verb_at test $argv
+end
+
+function __garuda_build_virt_at
+    __garuda_build_verb_at virt $argv
+end
+
+# __garuda_build_verbless <verb>: the next word is the output after <verb>
+function __garuda_build_verbless
     set -l words (commandline -opc)
-    test (count $words) -eq 2; and test "$words[2]" = test
+    test (count $words) -eq 2; and test "$words[2]" = $argv[1]
 end
 
 complete -c build -n 'test (count (commandline -opc)) -eq 1' -a test -d 'test a built image'
-complete -c build -n __garuda_build_test_verbless -a 'iso vm lima distrobox oci' -d output
+complete -c build -n '__garuda_build_verbless test' -a 'iso vm lima distrobox oci' -d output
 complete -c build -n '__garuda_build_test_at iso 1; or __garuda_build_test_at vm 1' -a '(__garuda_build_editions)' -d edition
 complete -c build -n '__garuda_build_test_at iso any' -l openqa -d 'openQA install run instead of iso-test'
 complete -c build -n '__garuda_build_test_at iso any' -l cdrom -d 'ISO as CD drive'
@@ -90,8 +99,16 @@ complete -c build -n '__garuda_build_test_at iso any' -l boot-disk -d 'boot the 
 complete -c build -n '__garuda_build_test_at iso any' -l secure-boot -d 'Secure Boot on'
 complete -c build -n '__garuda_build_test_at iso any; or __garuda_build_test_at vm any' -l ram -x -d 'RAM of the VM'
 complete -c build -n '__garuda_build_test_at vm any; or __garuda_build_test_at lima any' -l keep -d 'keep the VM state'
-complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg' -l test -f -a openqa -d 'test the image after the build'
-complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg' -l tag -f -d 'import oci or distrobox into podman and docker'
+complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg virt' -l test -f -a openqa -d 'test the image after the build'
+complete -c build -n '__garuda_build_no_output; and not __fish_seen_subcommand_from test pkg virt' -l tag -f -d 'import oci or distrobox into podman and docker'
+
+complete -c build -n 'test (count (commandline -opc)) -eq 1' -a virt -d 'libvirt domain from an image'
+complete -c build -n '__garuda_build_verbless virt' -a 'iso vm' -d output
+complete -c build -n '__garuda_build_virt_at iso 1; or __garuda_build_virt_at vm 1' -a '(__garuda_build_editions)' -d edition
+complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l new -d 'another domain, optional =<name>'
+complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l attach -d 'follow the journal, Ctrl+C shuts down'
+complete -c build -n '__garuda_build_virt_at iso any' -l disk -d 'add an install disk'
+complete -c build -n '__garuda_build_virt_at iso any; or __garuda_build_virt_at vm any' -l ram -x -d 'RAM of the VM'
 
 complete -c build -n 'test (count (commandline -opc)) -eq 1' -a pkg -d 'local packages with cpb'
 complete -c build -n __garuda_build_pkg_verbless -a build -d 'build packages into mkosi.packages/'
