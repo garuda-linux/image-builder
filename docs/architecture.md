@@ -11,7 +11,7 @@ flowchart LR
   subgraph layers [Layers]
     base --> root --> desktop
     desktop --> live
-    desktop --> drivers
+    root --> drivers
     root -. kernel modules .-> initrd[live-initrd]
   end
 
@@ -60,7 +60,7 @@ The layers and the iso-profiles files they replace:
 | `root`        | Kernel, firmware, boot loaders, file system and disk tools | `shared/Packages-Root` (part)                 |
 | `desktop`     | Shared desktop packages and files, plus the edition        | `Packages-Desktop-Common`, `Packages-Desktop` |
 | `live`        | Live session and installer, plus the edition               | `Packages-Live`, `live-overlay-common`        |
-| `drivers`     | Offline driver repository in `/opt/ght/pkg`                | `shared/Packages-Mhwd`                        |
+| `drivers`     | Offline driver repository in `/opt/ght/pkg`, on `root`     | `shared/Packages-Mhwd`                        |
 | `live-initrd` | Initrd of the live ISO, a systemd initrd made by mkosi     | the garuda-tools _miso_ dracut module         |
 
 The `base` layer already carries the Garuda repositories `[garuda]`, `[multilib]` and `[chaotic-aur]` in `/etc/pacman.conf`, so the distrobox and Lima images install from them as well. On installs, _garuda-config-agent_ adds them with the `pacman.yaml` rule of _garuda-common-settings_. That package is only part of the `desktop` layer, so `mkosi.postinst.chroot` of `base` applies a copy of the rule once. The record in `/etc/garuda/garuda-config-agent/configs.db` lets _garuda-common-settings_ find the file already done. When _garuda-common-settings_ changes its rule, update the copy in `mkosi.images/base/mkosi.extra/usr/share/image-builder/`.
@@ -71,7 +71,7 @@ A layer directory can hold:
 
 - `mkosi.conf` and `mkosi.conf.d/`: packages and settings. The `50-extra.conf` files hold the packages that garuda-tools marked `>extra`.
 - `mkosi.extra/`: files copied into the layer, including the systemd preset files.
-- `mkosi.postinst.chroot`: a script that runs inside the layer after the files are copied. The `root`, `desktop` and `live` layers also run `mkosi.shared/cleanup.chroot` after it, which removes build leftovers such as logs and _.pacnew_ files.
+- `mkosi.postinst.chroot`: a script that runs inside the layer after the files are copied. The `root`, `desktop` and `live` layers also run `mkosi.shared/cleanup.chroot` after it, which removes build leftovers such as logs and the _.pacnew_ files in `/etc`.
 - `mkosi.profiles/<edition>/`: the edition part of the layer, see [Editions](editions.md).
 
 ## Outputs
@@ -105,7 +105,7 @@ mkosi builds the layers and the trees of the outputs. `build.sh` does the rest: 
 
 The ISO is a GPT disk image made by _systemd-repart_, as [KDE Linux](https://invent.kde.org/kde-linux/kde-linux) builds its ISO. repart also writes an ISO 9660 header with an El Torito boot catalog that points to the ESP, so the same file boots _systemd-boot_ with UEFI from a USB stick and from a CD drive. There is no BIOS support. `build.sh` assembles it from the layer trees:
 
-1. It computes the difference of each layer to the one below it: new and changed files, and deleted files as overlayfs whiteouts. `root` stays whole, `desktop` is compared with `root`, `drivers` and `live` with `desktop`.
+1. It computes the difference of each layer to the one below it: new and changed files, and deleted files as overlayfs whiteouts. `root` stays whole, `desktop` is compared with `root`, `live` with `desktop`. The `drivers` image is not a difference: it holds `/opt/ght` alone. The layer downloads the driver packages against `root`, once for every edition, so it also has dependencies that a desktop installs. The image takes only the packages that the `desktop` layer of the edition lacks, with a repository database of them. The build stops when the `drivers` layer differs from `root` outside `/opt/ght`. The layers that need a new image are done in parallel.
 2. It packs each result as an _erofs_ image and computes its _dm-verity_ hash tree with `veritysetup format`. Salt and UUIDs are derived from the layer name and `SOURCE_DATE_EPOCH`, so the images depend only on their content.
 3. It takes the live initrd from the `live-initrd` image. mkosi builds it from its own initrd configuration (`Include=mkosi-initrd`), a plain systemd initrd, with the kernel modules of the `root` layer reduced to the mkosi default set plus what the live ISO needs: `dm-verity`, `loop` and the USB, SD card and ATA drivers.
 4. It builds one UKI, `EFI/Linux/garuda.efi`, with kernel, microcode, the live initrd and one profile per boot entry (`ukify --profile`, `--join-profile`). Each profile has its own `.cmdline` with the verity root hash of each layer: open source and proprietary (NVIDIA) drivers, each normal, copied to RAM (`copytoram`) and with persistence, plus an entry that verifies the medium first. Profile 0 (open source drivers) is the default. systemd-boot lists each profile as `Garuda Linux <edition> (<title>)`. _systemd-boot_ reads only FAT, so the UKI goes into a FAT image, the ESP of the ISO, next to the boot loader and _memtest86+_ in `EFI/garuda/`, see [Secure Boot](#secure-boot). The menu has no language, keyboard or time zone choices: the live session and the installer ask for them.
@@ -126,6 +126,7 @@ At boot:
 2. `garuda-live-mount.service` of the initrd (`mkosi.images/live-initrd/mkosi.extra/`) finds the boot disk by its label and the layer partitions on it by their names. The kernel does not read the GPT of a CD drive, which has 2048-byte sectors, so on a CD drive udev starts `systemd-loop@.service` of systemd, which attaches the drive to a loop device with 512-byte sectors and partition scan, and the initrd waits for that loop device. When no disk carries the label, the ISO is a file on another disk, see [ISO file boot](#iso-file-boot).
 3. It sets up the writable layer, in RAM or on the persistence partition, copies the layer partitions to RAM when `copytoram` is set, reads every layer once through dm-verity when `checksum` is set, opens each layer as a dm-verity device with its root hash and mounts it read-only under `/run/garuda/layers/<layer>`.
 4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `drivers`, `desktop`, `root`, with the writable layer on top.
+   `61-garuda-live-hide.rules` of the `live` layer sets `UDISKS_IGNORE` on the layer devices, their loop devices and the partitions of the ISO, so file managers do not list them. Other partitions of the boot disk, such as `GARUDA_PERSIST`, stay visible.
 5. `run-garuda-install.mount` mounts the `desktop` and `root` layers alone at `/run/garuda/install`. The installer copies the new system from there, so the live session and the driver repository do not end up on the installed system.
 
 How the layers become the root file system of the live session:

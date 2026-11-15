@@ -1,0 +1,22 @@
+# The devices the live system runs from stay out of file managers (udisks2).
+# After 60-persistent-storage.rules, which reads labels and partition names.
+
+SUBSYSTEM!="block", GOTO="garuda_live_hide_end"
+
+# The layers, opened by garuda-live-mount
+ENV{DM_NAME}=="garuda-*", ENV{UDISKS_IGNORE}="1"
+
+# Their loop devices after copytoram
+KERNEL=="loop*", ATTR{loop/backing_file}=="/run/garuda/copytoram/*", ENV{UDISKS_IGNORE}="1"
+
+# The ISO: a disk, or the loop device of an ISO file or a CD drive
+ENV{ID_FS_TYPE}=="iso9660", ENV{ID_FS_LABEL}=="GARUDA_*", ENV{UDISKS_IGNORE}="1"
+ENV{DEVTYPE}=="disk", ENV{ID_FS_TYPE}=="iso9660", ENV{ID_FS_LABEL}=="GARUDA_*", ENV{GARUDA_LIVE_MEDIUM}="1"
+
+# Its layer and hash partitions, and its ESP. Other partitions of the disk,
+# such as GARUDA_PERSIST, stay visible.
+ENV{DEVTYPE}=="partition", ENV{ID_PART_ENTRY_NAME}=="garuda-*", ENV{UDISKS_IGNORE}="1"
+ENV{DEVTYPE}=="partition", IMPORT{parent}="GARUDA_LIVE_MEDIUM"
+ENV{DEVTYPE}=="partition", ENV{GARUDA_LIVE_MEDIUM}=="1", ENV{ID_PART_ENTRY_TYPE}=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b", ENV{UDISKS_IGNORE}="1"
+
+LABEL="garuda_live_hide_end"

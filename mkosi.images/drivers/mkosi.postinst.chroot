@@ -45,27 +45,5 @@ for local_pkg in "$SRCDIR"/local-packages/*.pkg.tar*; do
   fi
 done
 
-# The .sig files stay next to the packages, repo-add puts them into the database
-packages=()
-for file in "$repo"/*.pkg.tar*; do
-  [[ "$file" == *.sig ]] || packages+=("$file")
-done
-repo-add "$repo/ght.db.tar.gz" "${packages[@]}"
-
-# repo-add stamps the build time on the archive entries. Repacked with sorted
-# entries and SOURCE_DATE_EPOCH, they only change with their content.
-repack() {
-  local archive="$1" tmp
-  tmp="$(mktemp -d)"
-  bsdtar -xf "$archive" -C "$tmp"
-  find "$tmp" -exec touch -h -d "@${SOURCE_DATE_EPOCH:?}" {} +
-  (cd "$tmp" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort |
-    bsdtar --format=ustar --uid 0 --gid 0 --numeric-owner --no-recursion -cf - -T -) |
-    gzip -9 -n >"$archive"
-  rm -rf "$tmp"
-}
-repack "$repo/ght.db.tar.gz"
-repack "$repo/ght.files.tar.gz"
-
-# Only the driver repository belongs in this layer
-rm -f /var/lib/pacman/sync/* /var/log/pacman.log
+# lib/iso.sh stops the build when anything outside /opt/ght differs from root
+rm -rf /var/lib/pacman/sync /var/log/pacman.log

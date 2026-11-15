@@ -30,7 +30,7 @@
 # Environment:
 #   VERSION          image version as YYYYMMDD, default today
 #   ISO_COMPRESSION  fast (lz4, default), balanced (zstd level 3, CI default)
-#                    or max (zstd level 22, releases)
+#                    or max (zstd level 19, releases)
 #   SB_KEY, SB_CERT  Secure Boot key (PEM file or pkcs11: URI) and PEM cert,
 #                    signs the ISO boot chain and the generic UKI
 #   SB_CA_CERT       PEM cert of the CA that issued SB_CERT, the cert that

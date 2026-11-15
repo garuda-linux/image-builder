@@ -53,20 +53,20 @@ under_whiteout() {
 # work stacked in overlayfs. --checksum: mkosi clamps every mtime to
 # SOURCE_DATE_EPOCH, so size and time cannot tell changed files apart.
 make_layer_diff() {
-  local lower="$1" upper="$2" out="$3"
+  local lower="$1" upper="$2" out="$3" lists="$ISO_WORK/lists/${3##*/}"
 
-  mkdir -p "$out" "$ISO_WORK/lists"
+  mkdir -p "$out" "$lists"
   rsync -aHAX --checksum --checksum-choice=xxh3 --compare-dest="$lower/" "$upper/" "$out/"
 
-  (cd "$lower" && find . -mindepth 1 | LC_ALL=C sort) >"$ISO_WORK/lists/lower"
-  (cd "$upper" && find . -mindepth 1 | LC_ALL=C sort) >"$ISO_WORK/lists/upper"
+  (cd "$lower" && find . -mindepth 1 | LC_ALL=C sort) >"$lists/lower"
+  (cd "$upper" && find . -mindepth 1 | LC_ALL=C sort) >"$lists/upper"
 
   local path
   while IFS= read -r path; do
     under_whiteout "$out" "$path" && continue
     mkdir -p "$out/${path%/*}"
     mknod "$out/$path" c 0 0
-  done < <(LC_ALL=C comm -23 "$ISO_WORK/lists/lower" "$ISO_WORK/lists/upper")
+  done < <(LC_ALL=C comm -23 "$lists/lower" "$lists/upper")
 }
 
 # max is slow to build but still fast to read in the live session. balanced
@@ -75,8 +75,8 @@ make_layer_diff() {
 # shellcheck disable=SC2054 # commas belong to the mkfs.erofs options
 case "${ISO_COMPRESSION:=fast}" in
   fast) EROFS_OPTS=(-zlz4) ;;
-  balanced) EROFS_OPTS=(-zzstd,level=3) ;;
-  max) EROFS_OPTS=(-zzstd,level=22 -C1048576 -Ededupe,fragments,ztailpacking) ;;
+  balanced) EROFS_OPTS=(-zzstd,level=3 -C65536) ;;
+  max) EROFS_OPTS=(-zzstd,level=19 -C1048576) ;;
   *) die "ISO_COMPRESSION must be fast, balanced or max, not $ISO_COMPRESSION" ;;
 esac
 
@@ -240,35 +240,120 @@ build_live_boot() {
   make_efi_image "$esp"
 }
 
-# Cached per layer stamp and erofs options, so root.erofs is shared by all editions
+# repo-add stamps the build time on the archive entries, the repack makes them reproducible
+repack_repo_db() {
+  local archive="$1" tmp
+  tmp="$(mktemp -d -p "$ISO_WORK")"
+  bsdtar -xf "$archive" -C "$tmp"
+  find "$tmp" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+  (cd "$tmp" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort |
+    bsdtar --format=ustar --uid 0 --gid 0 --numeric-owner --no-recursion -cf - -T -) |
+    gzip -9 -n >"$archive"
+  rm -rf "$tmp"
+}
+
+# /opt/ght alone, without the packages that the desktop of this edition has installed
+make_drivers_tree() {
+  local out="$1" tree="$OUTPUT_DIR/drivers" repo file name extra packages=()
+  local -A installed=()
+  repo="$out/opt/ght/pkg"
+
+  extra="$(LC_ALL=C comm -3 \
+    <(cd "$OUTPUT_DIR/root" && find . -mindepth 1 | LC_ALL=C sort) \
+    <(cd "$tree" && find . -mindepth 1 -path ./opt/ght -prune -o -print | LC_ALL=C sort))"
+  [[ -z "$extra" ]] ||
+    die "the drivers layer differs from root outside /opt/ght: $(head -n 5 <<<"$extra" | tr -s '\t\n' ' ')"
+
+  for file in "$OUTPUT_DIR"/desktop/var/lib/pacman/local/*/desc; do
+    [[ -f "$file" ]] || continue
+    name="${file%/desc}"
+    name="${name##*/}"
+    installed[${name%-*-*}]=1
+  done
+  ((${#installed[@]} > 0)) || die "no package database in the desktop layer"
+
+  mkdir -p "$repo"
+  chmod --reference="$tree/opt" "$out/opt"
+  rsync -aHAX --exclude='/pkg/*' "$tree/opt/ght/" "$out/opt/ght/"
+
+  for file in "$tree"/opt/ght/pkg/*.pkg.tar*; do
+    [[ -f "$file" && "$file" != *.sig ]] || continue
+
+    read -r name _ < <(local_package_id "$file")
+    [[ -n "${installed[$name]:-}" ]] && continue
+
+    cp -a --reflink=auto "$file" "$repo/"
+    if [[ -f "$file.sig" ]]; then
+      cp -a --reflink=auto "$file.sig" "$repo/"
+    fi
+
+    packages+=("$repo/${file##*/}")
+  done
+  ((${#packages[@]} > 0)) || die "no driver packages in $tree/opt/ght/pkg"
+
+  repo-add --quiet "$repo/ght.db.tar.gz" "${packages[@]}" >/dev/null
+  repack_repo_db "$repo/ght.db.tar.gz"
+  repack_repo_db "$repo/ght.files.tar.gz"
+}
+
+# A background job of make_layer_images
+make_layer_image() {
+  local layer="$1" cache="$2" key="$3" start=$SECONDS
+
+  rm -f "$cache/$layer.key" "$cache/$layer.erofs"
+  if [[ "$layer" == root ]]; then
+    make_erofs "$OUTPUT_DIR/root" "$cache/root.erofs" root
+  elif [[ "$layer" == drivers ]]; then
+    make_drivers_tree "$ISO_WORK/drivers.tree"
+    make_erofs "$ISO_WORK/drivers.tree" "$cache/drivers.erofs" drivers
+    rm -rf --one-file-system "$ISO_WORK/drivers.tree"
+  else
+    make_layer_diff "$OUTPUT_DIR/${LAYER_BELOW[$layer]}" "$OUTPUT_DIR/$layer" "$ISO_WORK/$layer.diff"
+    make_erofs "$ISO_WORK/$layer.diff" "$cache/$layer.erofs" "$layer"
+    rm -rf --one-file-system "$ISO_WORK/$layer.diff"
+  fi
+
+  make_verity "$cache/$layer.erofs" "$cache/$layer.verity" "$cache/$layer.roothash" "$layer"
+  echo "$key" >"$cache/$layer.key"
+  echo "$((SECONDS - start))" >"$ISO_WORK/$layer.seconds"
+}
+
+# Cached per layer stamp and erofs options. drivers.erofs also depends on the desktop.
 make_layer_images() {
-  local layer_dir="$1" cache="$OUTPUT_DIR/.erofs" layer key lower start
+  local layer_dir="$1" cache="$OUTPUT_DIR/.erofs" layer key rebuilt failed=()
+  local -A pid=()
 
   log "Making the layer images"
   mkdir -p "$layer_dir" "$cache"
 
-  for layer in root desktop drivers live; do
-    key="$(printf '%s\n' "${NEW_STAMP[$layer]}" "${EROFS_OPTS[*]}" | sha256sum | cut -d' ' -f1)"
+  for layer in "${ISO_LAYERS[@]}"; do
+    key="${NEW_STAMP[$layer]}"
+    rebuilt="${REBUILT[$layer]:-}"
+    if [[ "$layer" == drivers ]]; then
+      key+=" ${NEW_STAMP[desktop]}"
+      rebuilt+="${REBUILT[desktop]:-}"
+    fi
 
-    if [[ -z "${REBUILT[$layer]:-}" && -f "$cache/$layer.erofs" &&
+    key="$(printf '%s\n' "$key" "${EROFS_OPTS[*]}" | sha256sum | cut -d' ' -f1)"
+
+    if [[ -z "$rebuilt" && -f "$cache/$layer.erofs" &&
       -f "$cache/$layer.verity" && -f "$cache/$layer.roothash" &&
       "$(cat "$cache/$layer.key" 2>/dev/null)" == "$key" ]]; then
       log "Reusing $layer.erofs"
     else
-      start=$SECONDS
-      rm -f "$cache/$layer.key" "$cache/$layer.erofs"
-      if [[ "$layer" == root ]]; then
-        make_erofs "$OUTPUT_DIR/root" "$cache/root.erofs" root
-      else
-        lower=desktop
-        [[ "$layer" == desktop ]] && lower=root
-        make_layer_diff "$OUTPUT_DIR/$lower" "$OUTPUT_DIR/$layer" "$ISO_WORK/$layer.diff"
-        make_erofs "$ISO_WORK/$layer.diff" "$cache/$layer.erofs" "$layer"
-        rm -rf --one-file-system "$ISO_WORK/$layer.diff"
-      fi
-      make_verity "$cache/$layer.erofs" "$cache/$layer.verity" "$cache/$layer.roothash" "$layer"
-      echo "$key" >"$cache/$layer.key"
-      timing_add "post: erofs $layer (${ISO_COMPRESSION})" "$((SECONDS - start))"
+      make_layer_image "$layer" "$cache" "$key" &
+      pid[$layer]=$!
+    fi
+  done
+
+  for layer in "${!pid[@]}"; do
+    wait "${pid[$layer]}" || failed+=("$layer")
+  done
+  ((${#failed[@]} == 0)) || die "could not make the layer images: ${failed[*]}"
+
+  for layer in "${ISO_LAYERS[@]}"; do
+    if [[ -n "${pid[$layer]:-}" ]]; then
+      timing_add "post: erofs $layer (${ISO_COMPRESSION})" "$(cat "$ISO_WORK/$layer.seconds")"
     fi
 
     cp --reflink=auto "$cache/$layer.erofs" "$layer_dir/$layer.erofs"

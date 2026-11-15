@@ -38,7 +38,7 @@ Environment variables of the build and the tests go into `.env.local`, a copy of
 
 ### Repositories
 
-The build repositories are in `mkosi.sandbox/etc/pacman.conf`, in the Garuda order: _garuda_, _core_, _extra_, _multilib_, _chaotic-aur_. The mirror is in `mkosi.sandbox/etc/pacman.d/mirrorlist`. mkosi ignores its `Mirror=` setting when this file exists.
+The build repositories are in `mkosi.sandbox/etc/pacman.conf`, in the Garuda order: _garuda_, _core_, _extra_, _multilib_, _chaotic-aur_. The mirror is in `mkosi.sandbox/etc/pacman.d/mirrorlist`, with `geo.mirror.pkgbuild.com` as a second server for a package that the Garuda mirror lists but has not synced yet. mkosi ignores its `Mirror=` setting when this file exists.
 
 `build.sh` downloads the chaotic keyring and mirrorlist into `mkosi.sandbox/` on the first run, because they are not in the Arch repositories. Git ignores them. Before it uses them, it checks their package signatures against the chaotic-aur signing key, whose fingerprint is pinned as `CHAOTIC_KEY` in `lib/chaotic.sh`. The public key itself is vendored as `ci/chaotic-key.asc`, so the build needs no keyserver.
 
@@ -135,18 +135,18 @@ $ build --explain iso mokka
 
 ### Timings
 
-Every build ends with a table of its steps, also after a failure: the keyring fetch, the package check, each mkosi image (from the `‣ [<image>]` prefix of mkosi's log lines), the post-build steps and, for an ISO, each erofs image with its compression. A build stopped with Ctrl+C or `SIGTERM` prints no table. mkosi's output goes through a pipe for this, so it has no colors.
+Every build ends with a table of its steps, also after a failure: the keyring fetch, the package check, each mkosi image (from the `‣ [<image>]` prefix of mkosi's log lines), the post-build steps and, for an ISO, each erofs image with its compression. The erofs images are made in parallel, so their times overlap. A build stopped with Ctrl+C or `SIGTERM` prints no table. mkosi's output goes through a pipe for this, so it has no colors.
 
 ### Cleaning up
 
 `build.sh clean` removes build files by level. Each level includes the ones before it:
 
-| Level    | Removes                                                                                                    |
-| -------- | ---------------------------------------------------------------------------------------------------------- |
-| `old`    | images of older versions, which no link such as `garuda-mokka.iso` points to, and the `repro-check` copies |
-| `layers` | the layer outputs, erofs images and stamps. The next build installs the layers again                       |
-| `caches` | mkosi's incremental caches, keyring and repository metadata                                                |
-| `all`    | the downloaded packages, _shim_, the tools tree, `mkosi.workspace/` and the chaotic keyring and mirrorlist |
+| Level    | Removes                                                                                                                                      |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `old`    | images of older versions, which no link such as `garuda-mokka.iso` points to, and the `repro-check` copies                                   |
+| `layers` | the layer outputs, erofs images, the OCI base blob and stamps, also of layers that no longer exist. The next build installs the layers again |
+| `caches` | mkosi's incremental caches, keyring and repository metadata                                                                                  |
+| `all`    | the downloaded packages, _shim_, the tools tree, `mkosi.workspace/` and the chaotic keyring and mirrorlist                                   |
 
 It lists the paths with their sizes and asks before it removes them, `--yes` skips the question. The current images, `mkosi.cache/qemu` (the test VMs) and `mkosi.packages/` stay at every level.
 
@@ -181,7 +181,7 @@ The results are in the `mkosi.output/` directory:
 | `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                           |
 | `base/`, `root/`, `desktop/`, `live/`, `drivers/`      | the layer trees                                                            |
 
-`<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default. An ISO build removes the older ISOs of the same edition and kernel with their `.manifest`, `.sha256` and `.spdx.json` files, so one ISO per edition stays. The raw disk image of Lima and the VM image is removed once its qcow2 exists.
+`<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default. An ISO build removes the older ISOs of the same edition and kernel with their `.manifest`, `.sha256` and `.spdx.json` files, so one ISO per edition stays. The raw disk image of Lima and the VM image is removed once its qcow2 exists. The qcow2 images are compressed with _zstd_, which QEMU reads from version 5.1 on.
 
 After mkosi has built the layers, `build.sh` checks that every unit enabled in one of the preset files of this repository exists in the image. _systemctl preset-all_ skips unknown units without a message, so a typo or a renamed unit would otherwise leave a service off. The build stops and names the unit and the preset file.
 
@@ -243,7 +243,7 @@ The builder container mounts the files at their own paths. A `pkcs11:` key needs
 
 `build.sh` reuses every layer whose inputs did not change. mkosi cannot do this itself for layers built on another layer: it turns `Incremental=` off for images with `BaseTrees=`, so only the `base` layer has a package snapshot of its own.
 
-Each layer output therefore gets a stamp in `mkosi.output/.stamps/`: a hash of the files of the layer (with only the profile of the current edition), `mkosi.conf`, `mkosi.conf.d/`, `mkosi.local.conf`, `mkosi.sandbox/` without the downloaded chaotic keyring and mirrorlist, `mkosi.shared/`, the extra mkosi arguments, the mkosi version and the stamp of the layer below. A `KERNEL=` argument, such as the `linux-lts` of xfce, only goes into the stamp of `root`, so xfce shares `base` with the other editions. For example, after a mokka build, a dr460nized build reuses `base` and `root` and rebuilds only the edition layers. For each layer, from the bottom up, `build.sh` decides:
+Each layer output therefore gets a stamp in `mkosi.output/.stamps/`: a hash of the files of the layer (with only the profile of the current edition), `mkosi.conf`, `mkosi.conf.d/`, `mkosi.local.conf`, `mkosi.sandbox/` without the downloaded chaotic keyring and mirrorlist, `mkosi.shared/`, the extra mkosi arguments, the mkosi version and the stamp of the layer below. A `KERNEL=` argument, such as the `linux-lts` of xfce, only goes into the stamp of `root`, so xfce shares `base` with the other editions. For example, after a mokka build, a dr460nized build reuses `base`, `root` and `drivers` and rebuilds only the edition layers. For each layer, from the bottom up, `build.sh` decides:
 
 ```mermaid
 flowchart TD
@@ -269,7 +269,9 @@ mkosi 27 builds every sub-image an output depends on, also when its tree exists.
 > [!NOTE]
 > `mkosi summary` and `mkosi build` without these variables see no layers. Pass them with `--environment`, as `scripts/lint.sh` does.
 
-The erofs images live in `mkosi.output/.erofs/`. Their key is the layer stamp plus the erofs options, so `ISO_COMPRESSION=fast` and `max` do not share them. The image of `root`, the largest layer, is made once for all editions. A rebuild of a layer, by any output, removes its erofs image, because a rebuild for package updates keeps the stamp.
+The erofs images live in `mkosi.output/.erofs/`. Their key is the layer stamp plus the erofs options, so `ISO_COMPRESSION=fast` and `max` do not share them. The image of `root`, the largest layer, is made once for all editions. The `drivers` layer is built once as well, but its image depends on the `desktop` layer and is made for each edition, see [Architecture](architecture.md). A rebuild of a layer, by any output, removes its erofs image, because a rebuild for package updates keeps the stamp.
+
+The packed `base` layer of the OCI images lives in `mkosi.output/.oci-cache/`. Its key is the stamp of `base` plus the package list of the layer, so `build distrobox` and `build oci` pack `base` once.
 
 Downloaded packages stay in `mkosi.cache/packages/`.
 
@@ -307,13 +309,13 @@ flowchart LR
 
 The `ISO_COMPRESSION` environment variable sets the compression of the erofs layer images:
 
-| Value            | Compression                                           | Use                                                   |
-| ---------------- | ----------------------------------------------------- | ----------------------------------------------------- |
-| `fast` (default) | lz4                                                   | local builds, quick to make                           |
-| `balanced`       | zstd level 3                                          | the continuous integration, see [CI#Jobs](ci.md#jobs) |
-| `max`            | zstd level 22, 1 MiB clusters, deduplication, packing | releases                                              |
+| Value            | Compression                   | Use                                                   |
+| ---------------- | ----------------------------- | ----------------------------------------------------- |
+| `fast` (default) | lz4                           | local builds, quick to make                           |
+| `balanced`       | zstd level 3, 64 KiB clusters | the continuous integration, see [CI#Jobs](ci.md#jobs) |
+| `max`            | zstd level 19, 1 MiB clusters | releases                                              |
 
-`max` makes the smallest ISO and takes much longer to build. All three read fast in the live session. On the 3 GB `/usr` of the `root` layer (November 2026), lz4 took 1.6 s for 1827 MiB, zstd level 3 took 3.6 s for 1510 MiB, and levels 6 and 9 saved only 2 % more at three to five times the time. To build a release-size ISO locally:
+`max` makes the smallest ISO and takes much longer to build. All three read fast in the live session. On the 3 GB `/usr` of the `root` layer (November 2026), lz4 took 1.6 s for 1827 MiB, zstd level 3 took 3.6 s for 1510 MiB, and levels 6 and 9 saved only 2 % more at three to five times the time. Level 19 with 1 MiB clusters took 287 s for 1346 MiB, level 22 gave the same size. `max` has no deduplication, fragments or tail packing: with these options _mkfs.erofs_ 1.9.4 compresses on one thread and wrote under 100 MiB in 15 minutes. To build a release-size ISO locally:
 
 ```console
 # ISO_COMPRESSION=max ./build.sh iso mokka

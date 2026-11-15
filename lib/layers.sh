@@ -9,7 +9,7 @@ readonly STAMPS="$OUTPUT_DIR/.stamps"
 readonly CHECK_DIR="$STAMPS/.check"
 
 # Quoted keys: shfmt would turn an unquoted live-initrd into arithmetic
-declare -rA LAYER_BELOW=(["base"]="" ["root"]=base ["desktop"]=root ["live"]=desktop ["drivers"]=desktop ["live-initrd"]=root)
+declare -rA LAYER_BELOW=(["base"]="" ["root"]=base ["desktop"]=root ["live"]=desktop ["drivers"]=root ["live-initrd"]=root)
 
 declare -A NEW_STAMP=() REBUILT=()
 
