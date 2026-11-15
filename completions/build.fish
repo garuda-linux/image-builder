@@ -128,7 +128,7 @@ for cmd in build build.sh
     complete -c $cmd -n __garuda_build_no_output -a clean -d 'remove old images, layers, caches'
     complete -c $cmd -n __garuda_build_no_output -l refresh-keys -d 'download the chaotic keyring again'
     complete -c $cmd -n __garuda_build_no_output -l fresh -d 'rebuild every layer'
-    complete -c $cmd -n __garuda_build_no_output -l rebuild-layer -x -a 'base root desktop live mhwd live-initrd' -d 'rebuild a layer'
+    complete -c $cmd -n __garuda_build_no_output -l rebuild-layer -x -a 'base root desktop live drivers live-initrd' -d 'rebuild a layer'
     complete -c $cmd -n __garuda_build_no_output -l explain -d 'show which layers would be rebuilt'
     complete -c $cmd -n __garuda_build_no_output -l container -d 'build in the builder image'
     complete -c $cmd -n __garuda_build_no_output -l rebuild-builder -d 'build the builder image again'

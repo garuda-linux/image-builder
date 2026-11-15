@@ -122,7 +122,7 @@ Options go before the output name:
 | `--test`, `--test=openqa` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build)                                                                                 |
 | `--tag`, `--tag=<name>`   | `build` only, `oci` and `distrobox`: imports the image into rootless podman and, with _sudo_, the docker daemon as `<name>`, default `localhost/garuda-<output>:latest` |
 
-The layers are `base`, `root`, `desktop`, `live`, `mhwd` and `live-initrd`, see [Incremental builds](#incremental-builds).
+The layers are `base`, `root`, `desktop`, `live`, `drivers` and `live-initrd`, see [Incremental builds](#incremental-builds).
 
 `--explain` makes the same decision as a build: stamps, local packages and the package check, which syncs the repository databases. It builds and removes nothing:
 
@@ -179,7 +179,7 @@ The results are in the `mkosi.output/` directory:
 | `garuda-<edition>.iso`, `garuda-lima.qcow2`            | links to the newest build                                                  |
 | `<output>.manifest`, `garuda-<edition>.iso.manifest`   | JSON package list written by mkosi, under a name without version           |
 | `<output>.spdx.json`, `garuda-<edition>.iso.spdx.json` | SPDX 2.3 SBOM of the packages, see [SBOM](#sbom)                           |
-| `base/`, `root/`, `desktop/`, `live/`, `mhwd/`         | the layer trees                                                            |
+| `base/`, `root/`, `desktop/`, `live/`, `drivers/`      | the layer trees                                                            |
 
 `<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default. An ISO build removes the older ISOs of the same edition and kernel with their `.manifest`, `.sha256` and `.spdx.json` files, so one ISO per edition stays. The raw disk image of Lima and the VM image is removed once its qcow2 exists.
 
@@ -187,7 +187,7 @@ After mkosi has built the layers, `build.sh` checks that every unit enabled in o
 
 ## VM image
 
-`./build.sh vm <edition>` builds the installed system of an edition as a qcow2 disk for virt-manager and other QEMU front ends, and as a base for tests inside it. It is the `desktop` layer of the edition, shared with its ISO build, without the `live` and `mhwd` layers, on the disk layout of the Lima image (`mkosi.profiles/vm`). `lib/vm.sh` does on the image what Calamares does on an install:
+`./build.sh vm <edition>` builds the installed system of an edition as a qcow2 disk for virt-manager and other QEMU front ends, and as a base for tests inside it. It is the `desktop` layer of the edition, shared with its ISO build, without the `live` and `drivers` layers, on the disk layout of the Lima image (`mkosi.profiles/vm`). `lib/vm.sh` does on the image what Calamares does on an install:
 
 - the Garuda btrfs subvolumes, `/.snapshots` for snapper, fstab, the ESP of 4 GiB at `/efi`, _systemd-boot_ with UKIs and the kernel options of the edition's `bootloader.conf`, for example the TTY colours of mokka,
 - the user `garuda` with the default groups of the edition's `users.conf` and sudo through `wheel`. The password is `garuda`. A notification after the first login asks to change it, once. The password is not expired, because plasmalogin hangs on the password change of an expired one,
@@ -301,7 +301,7 @@ flowchart LR
 - The first build has no mkosi keyring yet, so it skips the check and builds every layer. The same holds for a CI job that starts without `mkosi.cache/`.
 
 > [!NOTE]
-> The check sees only versions. A package rebuilt under the same version needs `--rebuild-layer`, for example `./build.sh --rebuild-layer mhwd iso mokka`. The driver packages that the `mhwd` layer downloads into its local repository instead of installing them are checked by their file names: a newer version in the repositories rebuilds the layer.
+> The check sees only versions. A package rebuilt under the same version needs `--rebuild-layer`, for example `./build.sh --rebuild-layer drivers iso mokka`. The driver packages that the `drivers` layer downloads into its local repository instead of installing them are checked by their file names: a newer version in the repositories rebuilds the layer.
 
 ## Compression
 
@@ -328,7 +328,7 @@ Every timestamp in the images is `SOURCE_DATE_EPOCH`, by default the time of the
 > [!NOTE]
 > Reused layers keep the time of the build that made them. For an ISO that a second, independent build reproduces, build with `--fresh` from a clean commit. `repro-check` builds twice and compares the results, see [Testing#Reproducibility](testing.md#reproducibility).
 
-The first `repro-check` runs in November 2026 found the generic UKIs and the `mhwd` layer identical after the fixes below, and these sources of differences in the layers:
+The first `repro-check` runs in November 2026 found the generic UKIs and the `drivers` layer identical after the fixes below, and these sources of differences in the layers:
 
 | File                                         | Cause                                                           | Fix                                                                                                                                                                                                        |
 | -------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

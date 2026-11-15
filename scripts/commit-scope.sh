@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 outputs="distrobox oci lima vm uki iso"
-layers="layers base root desktop live mhwd live-initrd"
+layers="layers base root desktop live drivers live-initrd"
 areas="build secureboot container installer openqa scripts ci docs deps"
 editions="$(scripts/editions.sh | tr '\n' ' ')"
 allowed=" $outputs $layers $areas $editions "

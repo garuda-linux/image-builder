@@ -48,7 +48,7 @@ $ build --test=openqa iso gnome
 $ mkosi --profile iso --profile <edition> \
     --environment=GARUDA_BUILD_BASE=1 --environment=GARUDA_BUILD_ROOT=1 \
     --environment=GARUDA_BUILD_DESKTOP=1 --environment=GARUDA_BUILD_LIVE=1 \
-    --environment=GARUDA_BUILD_MHWD=1 --environment=GARUDA_BUILD_LIVE_INITRD=1 \
+    --environment=GARUDA_BUILD_DRIVERS=1 --environment=GARUDA_BUILD_LIVE_INITRD=1 \
     summary >/dev/null
 ```
 
@@ -239,7 +239,7 @@ $ repro-check dr460nized
 
 Both runs use the same `VERSION` and `SOURCE_DATE_EPOCH`, see [Building#Reproducible builds](building.md#reproducible-builds). The second run passes `--cache-only=metadata` to mkosi, so it installs from the repository metadata of the first run, and a package update in between does not show up as a difference. The script compares by sha256:
 
-- the erofs images, verity hash trees and root hashes of the `root`, `desktop`, `mhwd` and `live` layers
+- the erofs images, verity hash trees and root hashes of the `root`, `desktop`, `drivers` and `live` layers
 - the ISO
 - the rescue and Easy Anti-Cheat UKIs
 - every file of the distrobox OCI layout

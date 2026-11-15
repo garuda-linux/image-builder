@@ -44,7 +44,7 @@ The installer works offline:
 
 1. The _partition_ and _mount_ modules create the Garuda btrfs subvolumes `@`, `@home`, `@root`, `@srv`, `@cache`, `@log` and `@tmp`. With _Erase disk_, the root partition gets the x86-64 root type of the Discoverable Partitions Specification and the label `garuda` (`partitionLayout` in `partition.conf`), so that the signed [generic UKIs](building.md#generic-uki) find it without `root=`. In manual partitioning, the type is up to the user.
 2. _unpackfs_ copies `/run/garuda/install`, the `root` and `desktop` layers of the ISO, with _rsync_ (`sourcefs: "file"`).
-3. _ghtcfg_ installs the drivers from the offline repository `/opt/ght/pkg` of the `mhwd` layer.
+3. _ghtcfg_ installs the drivers from the offline repository `/opt/ght/pkg` of the `drivers` layer.
 4. _services-systemd_ only sets the graphical target. All other services come from the preset files, which were already applied in the copied layers.
 5. _postcfg_ creates the pacman keyring of the new system and rebuilds the initramfs: it removes the microcode package of the other CPU vendor, which triggers the dracut pacman hook, or runs `dracut-rebuild` itself when the vendor is unknown.
 6. _bootloader_ installs _systemd-boot_ on the ESP at `/efi` (4 GiB in automatic partitioning, at least 1 GiB when an existing ESP is picked), writes `/etc/kernel/cmdline` and runs `kernel-install add` for every kernel, which builds the UKIs with the configuration in `/etc/kernel/`, see [Architecture#systemd-boot](architecture.md#systemd-boot). The new system carries no GRUB.

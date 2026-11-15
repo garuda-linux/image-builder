@@ -79,7 +79,7 @@ No other file lists the editions. `scripts/editions.sh` reads them from the dire
 
 ### Without the extra packages
 
-garuda-tools left out the packages marked `>extra` for `extra=false`. Here, they are in the `50-extra.conf` files of the `base`, `root`, `desktop` and `mhwd` layers, which match `Profiles=!kde-lite`. To leave them out for another edition, add it to these matches.
+garuda-tools left out the packages marked `>extra` for `extra=false`. Here, they are in the `50-extra.conf` files of the `base`, `root`, `desktop` and `drivers` layers, which match `Profiles=!kde-lite`. To leave them out for another edition, add it to these matches.
 
 ### Another kernel
 

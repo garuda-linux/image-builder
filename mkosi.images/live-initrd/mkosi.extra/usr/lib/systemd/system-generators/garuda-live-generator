@@ -17,7 +17,7 @@ fi
 
 # lowerdir= lists the top layer first
 lower=""
-for layer in root desktop mhwd live; do
+for layer in root desktop drivers live; do
   lower="/run/garuda/layers/$layer${lower:+:$lower}"
 done
 

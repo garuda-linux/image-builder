@@ -26,7 +26,7 @@ say() { echo "garuda-live: $*"; }
 
 label="$(arg garuda.label)"
 verity="$(arg garuda.verity)"
-layers="root desktop mhwd live"
+layers="root desktop drivers live"
 persist_label=GARUDA_PERSIST
 
 # wait_for <seconds> <command...>: run the command until it succeeds

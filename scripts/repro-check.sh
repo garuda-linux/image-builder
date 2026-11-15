@@ -42,7 +42,7 @@ collect() {
   local dest="$work/$1" layer uki
 
   mkdir -p "$dest/layers"
-  for layer in root desktop mhwd live; do
+  for layer in root desktop drivers live; do
     sudo cp "$out/.erofs/$layer".{erofs,verity,roothash} "$dest/layers/"
   done
 

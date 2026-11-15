@@ -263,7 +263,7 @@ main() {
 
       if [[ "$output" == iso ]]; then
         timed "shim download" download_shim
-        prepare_layers "$edition" base root desktop live mhwd live-initrd -- "${kernel_args[@]}" "$@"
+        prepare_layers "$edition" base root desktop live drivers live-initrd -- "${kernel_args[@]}" "$@"
       else
         # The layers up to desktop, shared with the ISO build of the edition
         prepare_layers "$edition" base root desktop -- "${kernel_args[@]}" "$@"

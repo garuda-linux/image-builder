@@ -66,7 +66,7 @@ _garuda_build() {
   local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD - 1]}" root i output="" pos=0
   local outputs="distrobox oci lima iso vm uki clean"
   local options="--refresh-keys --fresh --rebuild-layer --explain --container --rebuild-builder --help"
-  local layers="base root desktop live mhwd live-initrd"
+  local layers="base root desktop live drivers live-initrd"
   local levels="old layers caches all"
 
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0

@@ -11,7 +11,7 @@ flowchart LR
   subgraph layers [Layers]
     base --> root --> desktop
     desktop --> live
-    desktop --> mhwd
+    desktop --> drivers
     root -. kernel modules .-> initrd[live-initrd]
   end
 
@@ -27,7 +27,7 @@ flowchart LR
   root ==> lima
   desktop ==> vm
   root ==> uki
-  root & desktop & mhwd & live ==> iso
+  root & desktop & drivers & live ==> iso
   initrd ==> iso
 ```
 
@@ -60,7 +60,7 @@ The layers and the iso-profiles files they replace:
 | `root`        | Kernel, firmware, boot loaders, file system and disk tools | `shared/Packages-Root` (part)                 |
 | `desktop`     | Shared desktop packages and files, plus the edition        | `Packages-Desktop-Common`, `Packages-Desktop` |
 | `live`        | Live session and installer, plus the edition               | `Packages-Live`, `live-overlay-common`        |
-| `mhwd`        | Offline driver repository in `/opt/ght/pkg`                | `shared/Packages-Mhwd`                        |
+| `drivers`     | Offline driver repository in `/opt/ght/pkg`                | `shared/Packages-Mhwd`                        |
 | `live-initrd` | Initrd of the live ISO, a systemd initrd made by mkosi     | the garuda-tools _miso_ dracut module         |
 
 The `base` layer already carries the Garuda repositories `[garuda]`, `[multilib]` and `[chaotic-aur]` in `/etc/pacman.conf`, so the distrobox and Lima images install from them as well. On installs, _garuda-config-agent_ adds them with the `pacman.yaml` rule of _garuda-common-settings_. That package is only part of the `desktop` layer, so `mkosi.postinst.chroot` of `base` applies a copy of the rule once. The record in `/etc/garuda/garuda-config-agent/configs.db` lets _garuda-common-settings_ find the file already done. When _garuda-common-settings_ changes its rule, update the copy in `mkosi.images/base/mkosi.extra/usr/share/image-builder/`.
@@ -105,7 +105,7 @@ mkosi builds the layers and the trees of the outputs. `build.sh` does the rest: 
 
 The ISO is a GPT disk image made by _systemd-repart_, as [KDE Linux](https://invent.kde.org/kde-linux/kde-linux) builds its ISO. repart also writes an ISO 9660 header with an El Torito boot catalog that points to the ESP, so the same file boots _systemd-boot_ with UEFI from a USB stick and from a CD drive. There is no BIOS support. `build.sh` assembles it from the layer trees:
 
-1. It computes the difference of each layer to the one below it: new and changed files, and deleted files as overlayfs whiteouts. `root` stays whole, `desktop` is compared with `root`, `mhwd` and `live` with `desktop`.
+1. It computes the difference of each layer to the one below it: new and changed files, and deleted files as overlayfs whiteouts. `root` stays whole, `desktop` is compared with `root`, `drivers` and `live` with `desktop`.
 2. It packs each result as an _erofs_ image and computes its _dm-verity_ hash tree with `veritysetup format`. Salt and UUIDs are derived from the layer name and `SOURCE_DATE_EPOCH`, so the images depend only on their content.
 3. It takes the live initrd from the `live-initrd` image. mkosi builds it from its own initrd configuration (`Include=mkosi-initrd`), a plain systemd initrd, with the kernel modules of the `root` layer reduced to the mkosi default set plus what the live ISO needs: `dm-verity`, `loop` and the USB, SD card and ATA drivers.
 4. It builds one UKI, `EFI/Linux/garuda.efi`, with kernel, microcode, the live initrd and one profile per boot entry (`ukify --profile`, `--join-profile`). Each profile has its own `.cmdline` with the verity root hash of each layer: open source and proprietary (NVIDIA) drivers, each normal, copied to RAM (`copytoram`) and with persistence, plus an entry that verifies the medium first. Profile 0 (open source drivers) is the default. systemd-boot lists each profile as `Garuda Linux <edition> (<title>)`. _systemd-boot_ reads only FAT, so the UKI goes into a FAT image, the ESP of the ISO, next to the boot loader and _memtest86+_ in `EFI/garuda/`, see [Secure Boot](#secure-boot). The menu has no language, keyboard or time zone choices: the live session and the installer ask for them.
@@ -125,7 +125,7 @@ At boot:
 1. _systemd-boot_ shows the profiles of the UKI for 10 seconds and starts it with `garuda.label=<label>` and `garuda.verity=<layer>:<hash>,...`, where `<label>` is the El Torito volume label, for example `GARUDA_MOKKA_20261107`, and `<hash>` the verity root hash of each layer. There is no `root=`: the root file system comes from the initrd's own units.
 2. `garuda-live-mount.service` of the initrd (`mkosi.images/live-initrd/mkosi.extra/`) finds the boot disk by its label and the layer partitions on it by their names. The kernel does not read the GPT of a CD drive, which has 2048-byte sectors, so on a CD drive udev starts `systemd-loop@.service` of systemd, which attaches the drive to a loop device with 512-byte sectors and partition scan, and the initrd waits for that loop device. When no disk carries the label, the ISO is a file on another disk, see [ISO file boot](#iso-file-boot).
 3. It sets up the writable layer, in RAM or on the persistence partition, copies the layer partitions to RAM when `copytoram` is set, reads every layer once through dm-verity when `checksum` is set, opens each layer as a dm-verity device with its root hash and mounts it read-only under `/run/garuda/layers/<layer>`.
-4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `mhwd`, `desktop`, `root`, with the writable layer on top.
+4. `/sysroot` stacks the layers with overlayfs as the root file system, in the order `live`, `drivers`, `desktop`, `root`, with the writable layer on top.
 5. `run-garuda-install.mount` mounts the `desktop` and `root` layers alone at `/run/garuda/install`. The installer copies the new system from there, so the live session and the driver repository do not end up on the installed system.
 
 How the layers become the root file system of the live session:
@@ -135,12 +135,12 @@ flowchart BT
   subgraph medium [ISO partitions]
     pr[garuda-root] --- vr[garuda-root-verity]
     pd[garuda-desktop] --- vd[garuda-desktop-verity]
-    pm[garuda-mhwd] --- vm[garuda-mhwd-verity]
+    pm[garuda-drivers] --- vm[garuda-drivers-verity]
     pl[garuda-live] --- vl[garuda-live-verity]
   end
 
   subgraph verity ["dm-verity devices, root hashes from garuda.verity="]
-    dr[root] & dd[desktop] & dm[mhwd] & dl[live]
+    dr[root] & dd[desktop] & dm[drivers] & dl[live]
   end
 
   pr --> dr
@@ -150,7 +150,7 @@ flowchart BT
 
   subgraph sysroot ["/sysroot, overlayfs"]
     direction BT
-    lr[root, lowest] --> ld[desktop] --> lm[mhwd] --> ll[live] --> rw[writable layer: RAM or GARUDA_PERSIST]
+    lr[root, lowest] --> ld[desktop] --> lm[drivers] --> ll[live] --> rw[writable layer: RAM or GARUDA_PERSIST]
   end
 
   dr --> lr
@@ -212,7 +212,7 @@ flowchart TD
   sdb -->|shim protocol, MOK list| uki[garuda.efi: kernel, microcode, initrd, signed .cmdline per profile]
   sdb -->|shim protocol| mt[memtest86+]
   uki -->|garuda.verity= in the signed .cmdline| vt[dm-verity root hash of each layer]
-  vt -->|every block read| layers[erofs layers root, desktop, mhwd, live]
+  vt -->|every block read| layers[erofs layers root, desktop, drivers, live]
 ```
 
 On the first boot with Secure Boot on, _shim_ does not know the Garuda CA yet and starts _MokManager_. Choose _Enroll key from disk_, pick `EFI/garuda/garuda-secureboot.cer` on the boot medium, confirm and reboot. The CA then stays in the MOK list of the machine, and _shim_ chains the signatures, which name `SB_CERT`, to it. With Secure Boot off, _shim_ starts _systemd-boot_ without checks.
@@ -278,7 +278,7 @@ On the first start of a box, `distrobox-init` runs _pacman_ before systemd start
 
 The `oci` image is the exception, like the Arch Linux image: `podman run` and `docker run` have no first boot that could make a keyring. Every container of one build shares its private master key, and the second layer of the image differs on every build. `repro-check` does not build it.
 
-The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot` of the `mhwd` layer checks the signatures of the driver packages when it downloads them, with a temporary keyring that it removes afterwards. On the ISO the repository is part of the dm-verity protected `mhwd` layer, so `/opt/ght/pacman-ght.conf` has `SigLevel = Never` for it, and `ght-live.service` installs the drivers before `garuda-live-keyring.service` makes the system keyring. A keyring kept in the layer would hold a new private master key on every build, and the ISO would differ between builds.
+The driver repository in `/opt/ght/pkg` needs no keyring. `mkosi.postinst.chroot` of the `drivers` layer checks the signatures of the driver packages when it downloads them, with a temporary keyring that it removes afterwards. On the ISO the repository is part of the dm-verity protected `drivers` layer, so `/opt/ght/pacman-ght.conf` has `SigLevel = Never` for it, and `ght-live.service` installs the drivers before `garuda-live-keyring.service` makes the system keyring. A keyring kept in the layer would hold a new private master key on every build, and the ISO would differ between builds.
 
 ## DNS
 

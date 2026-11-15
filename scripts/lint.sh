@@ -72,7 +72,7 @@ fi
 
 # Layers only match when build.sh marks them for a build, see lib/layers.sh
 all_layers=()
-for layer in BASE ROOT DESKTOP LIVE MHWD LIVE_INITRD; do
+for layer in BASE ROOT DESKTOP LIVE DRIVERS LIVE_INITRD; do
   all_layers+=(--environment="GARUDA_BUILD_$layer=1")
 done
 

@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 
-readonly ISO_LAYERS=(root desktop mhwd live)
+readonly ISO_LAYERS=(root desktop drivers live)
 
 declare -rA EDITION_KERNEL=([xfce]=linux-lts)
 
@@ -247,7 +247,7 @@ make_layer_images() {
   log "Making the layer images"
   mkdir -p "$layer_dir" "$cache"
 
-  for layer in root desktop mhwd live; do
+  for layer in root desktop drivers live; do
     key="$(printf '%s\n' "${NEW_STAMP[$layer]}" "${EROFS_OPTS[*]}" | sha256sum | cut -d' ' -f1)"
 
     if [[ -z "${REBUILT[$layer]:-}" && -f "$cache/$layer.erofs" &&

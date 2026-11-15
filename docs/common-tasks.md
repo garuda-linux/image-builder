@@ -20,7 +20,7 @@ The file depends on where the package is needed:
 | only in the live session of one edition               | `mkosi.images/live/mkosi.profiles/<edition>/mkosi.conf`    |
 | only in the distrobox container                       | `mkosi.profiles/distrobox/mkosi.conf`                      |
 | only on the Lima image                                | `mkosi.profiles/lima/mkosi.conf`                           |
-| as an offline driver for the installer                | `MHWD_PACKAGES` in `mkosi.images/mhwd/mkosi.conf`          |
+| as an offline driver for the installer                | `DRIVER_PACKAGES` in `mkosi.images/drivers/mkosi.conf`     |
 
 `<edition>` is the edition name, for example `mokka`.
 

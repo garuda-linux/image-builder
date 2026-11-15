@@ -9,7 +9,7 @@ readonly STAMPS="$OUTPUT_DIR/.stamps"
 readonly CHECK_DIR="$STAMPS/.check"
 
 # Quoted keys: shfmt would turn an unquoted live-initrd into arithmetic
-declare -rA LAYER_BELOW=(["base"]="" ["root"]=base ["desktop"]=root ["live"]=desktop ["mhwd"]=desktop ["live-initrd"]=root)
+declare -rA LAYER_BELOW=(["base"]="" ["root"]=base ["desktop"]=root ["live"]=desktop ["drivers"]=desktop ["live-initrd"]=root)
 
 declare -A NEW_STAMP=() REBUILT=()
 
@@ -157,20 +157,20 @@ local_packages_hash() {
   sha256sum "${found[@]}" | sha256sum | cut -d' ' -f1
 }
 
-# The driver packages the mhwd layer only downloads to /opt/ght/pkg are not in
+# The driver packages the drivers layer only downloads to /opt/ght/pkg are not in
 # its database, so -Qu does not see them.
-mhwd_downloads_outdated() {
+drivers_downloads_outdated() {
   local conf="$1" dbdir="$2" file name ver found
   local -A have=()
 
-  for file in "$(layer_output mhwd)"/opt/ght/pkg/*.pkg.tar*; do
+  for file in "$(layer_output drivers)"/opt/ght/pkg/*.pkg.tar*; do
     [[ -f "$file" && "$file" != *.sig ]] || continue
     read -r name ver < <(local_package_id "$file")
     have[$name]="$ver"
   done
   ((${#have[@]} > 0)) || return 0
 
-  # A local package of another version replaces its download, see the postinst of mhwd
+  # A local package of another version replaces its download, see the postinst of drivers
   while read -r file; do
     read -r name ver < <(local_package_id "$file")
     if [[ -n "${have[$name]:-}" && "${have[$name]}" != "$ver" ]]; then
@@ -266,8 +266,8 @@ packages_main() {
         result=unknown
       fi
 
-      if [[ "$layer" == mhwd && "$kind" == output && "$result" != unknown ]]; then
-        if extra="$(mhwd_downloads_outdated "$conf" "$dir")"; then
+      if [[ "$layer" == drivers && "$kind" == output && "$result" != unknown ]]; then
+        if extra="$(drivers_downloads_outdated "$conf" "$dir")"; then
           [[ -z "$extra" ]] || result="${result#clean} ${extra//$'\n'/ }"
         else
           result=unknown

@@ -14,7 +14,7 @@ $ jq -r '.packages[] | select(.name == "calamares-garuda") | .version' mkosi.out
 
 ### A reused layer looks stale
 
-The check sees versions only, not a package rebuilt under the same version, and not the driver packages in the local repository of the `mhwd` layer. Rebuild the layer and the layers above it with `--rebuild-layer <layer>`, or every layer with `--fresh`.
+The check sees versions only, not a package rebuilt under the same version, and not the driver packages in the local repository of the `drivers` layer. Rebuild the layer and the layers above it with `--rebuild-layer <layer>`, or every layer with `--fresh`.
 
 ### The build fails on NixOS with missing tools or keyring errors
 

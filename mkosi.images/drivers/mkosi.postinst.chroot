@@ -12,8 +12,8 @@ ght_gpg="$(mktemp -d)"
 pacman-key --gpgdir "$ght_gpg" --init
 pacman-key --gpgdir "$ght_gpg" --populate
 
-# shellcheck disable=SC2086 # MHWD_PACKAGES is a space-separated list
-pacman -Syw --noconfirm --gpgdir "$ght_gpg" --cachedir "$repo" ${MHWD_PACKAGES}
+# shellcheck disable=SC2086 # DRIVER_PACKAGES is a space-separated list
+pacman -Syw --noconfirm --gpgdir "$ght_gpg" --cachedir "$repo" ${DRIVER_PACKAGES}
 
 gpgconf --homedir "$ght_gpg" --kill all
 rm -rf "$ght_gpg"
