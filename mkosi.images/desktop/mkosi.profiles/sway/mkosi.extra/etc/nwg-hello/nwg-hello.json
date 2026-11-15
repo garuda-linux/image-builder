@@ -26,6 +26,7 @@
     "QT_QPA_PLATFORMTHEME=gtk3",
     "QT_STYLE_OVERRIDE=kvantum",
     "GTK_THEME=Nordic-darker",
-    "SWAY_UNSUPPORTED_GPU=1"
+    "SWAY_UNSUPPORTED_GPU=1",
+    "WLR_RENDERER_ALLOW_SOFTWARE=1"
   ]
 }
