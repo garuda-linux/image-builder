@@ -88,6 +88,7 @@ if [[ "$input_options" == "$listed" ]]; then ok "editions input"; else
   echo "          scripts/editions.sh: $listed"
 fi
 
+mkdir -p mkosi.packages
 for profiles in distrobox oci lima uki "${editions[@]/#/iso,}" "${editions[@]/#/vm,}"; do
   if errors="$(mkosi --profile "$profiles" "${all_layers[@]}" summary 2>&1 >/dev/null)"; then
     ok "mkosi --profile $profiles"

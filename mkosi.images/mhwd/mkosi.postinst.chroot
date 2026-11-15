@@ -26,8 +26,8 @@ pkg_name() {
 }
 
 # The download sees only the repositories of pacman.conf, not mkosi's local
-# repository. Packages of mkosi.packages/ ($PACKAGEDIR) replace their download.
-for local_pkg in "$PACKAGEDIR"/*.pkg.tar*; do
+# repository. Packages of mkosi.packages/ (BuildSources= of the top mkosi.conf) replace their download.
+for local_pkg in "$SRCDIR"/local-packages/*.pkg.tar*; do
   [[ -f "$local_pkg" && "$local_pkg" != *.sig ]] || continue
 
   name="$(pkg_name "$local_pkg")"

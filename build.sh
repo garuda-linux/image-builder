@@ -226,6 +226,7 @@ main() {
   timed "keyring and mirrorlist" fetch_chaotic "$refresh"
   write_secureboot_tree
   prepare_qemu_dir
+  mkdir -p "$LOCAL_PACKAGES"
 
   case "$output" in
     distrobox | oci)
