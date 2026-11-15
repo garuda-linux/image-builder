@@ -128,10 +128,16 @@ post_vm() {
   vm_user "$edition"
   vm_snapshots
   disk_fstab
+
   # The desktop preset disables it, as postcfg of Calamares makes the keyring on
   # installs. A preset overriding that one would fail check_presets.
   log "Enabling pacman-init.service for the first boot"
   systemctl --root="$DISK_MNT" enable pacman-init.service
+
+  # vm_system_settings already ran it. At boot it deadlocks with bootvine on the console
+  log "Masking systemd-firstboot.service"
+  systemctl --root="$DISK_MNT" mask systemd-firstboot.service
+
   disk_boot "${params[@]}"
   disk_unmount
 

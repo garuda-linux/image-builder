@@ -25,6 +25,8 @@ enable garuda-pacman-lock.service
 # kmscon on the VTs, falls back to getty on failure
 disable getty@.service
 enable kmsconvt@.service
+enable bootvine.service
+enable bootvine-shutdown.service
 enable garuda-boot-check.service
 # snapper-support-sdboot needs no unit: its snapper plugin starts snapper-sdboot.service.
 # No snapper-timeline.timer: the root config has TIMELINE_CREATE="no".
