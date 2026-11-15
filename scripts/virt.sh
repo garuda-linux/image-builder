@@ -15,10 +15,8 @@ root="$(git rev-parse --show-toplevel)"
 source "$root/lib/env.sh"
 load_env_local "$root"
 
-die() {
-  printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2
-  exit 1
-}
+# shellcheck source=lib/log.sh
+source "$root/lib/log.sh"
 
 kind="${1:-}"
 edition="${2:-}"
@@ -71,7 +69,7 @@ running() { [[ "$("${virsh[@]}" domstate "$name" 2>/dev/null)" == running ]]; }
 
 if "${virsh[@]}" dominfo "$name" >/dev/null 2>&1; then
   [[ "$new" == false ]] || die "a domain $name exists already"
-  echo "==> Replacing $name"
+  log "Replacing $name"
   "${virsh[@]}" destroy "$name" >/dev/null 2>&1 || true
   "${virsh[@]}" undefine "$name" --nvram --tpm --remove-all-storage >/dev/null
 fi
@@ -140,8 +138,8 @@ virt-install --connect qemu:///system --name "$name" \
   --qemu-commandline="-smbios type=11,value=io.systemd.credential:journal.forward_to_socket=vsock-stream:2:$port" \
   --noautoconsole >/dev/null
 
+log "Started $name"
 cat <<EOF
-==> Started $name
     window  virt-manager --connect qemu:///system --show-domain-console $name
     share   $share, guest: sudo mount -t virtiofs garuda-share /mnt
     remove  virsh -c qemu:///system undefine $name --nvram --tpm --remove-all-storage
@@ -153,7 +151,7 @@ stopped=false
 shut_down() {
   [[ "$stopped" == false ]] || return 0
   stopped=true
-  echo "==> Shutting down $name"
+  log "Shutting down $name"
   "${virsh[@]}" shutdown "$name" >/dev/null 2>&1 || true
   for _ in $(seq 60); do
     running || break
@@ -161,11 +159,11 @@ shut_down() {
   done
   "${virsh[@]}" destroy "$name" >/dev/null 2>&1 || true
   kill "$receiver" 2>/dev/null || true
-  echo "==> Journal kept in $journal: journalctl --directory=$journal"
+  log "Journal kept in $journal: journalctl --directory=$journal"
 }
 trap shut_down INT TERM
 
-echo "==> Following the guest journal, Ctrl+C shuts $name down"
+log "Following the guest journal, Ctrl+C shuts $name down"
 until journalctl --directory="$journal" -n 1 -q 2>/dev/null | grep -q .; do
   running || break
   sleep 1

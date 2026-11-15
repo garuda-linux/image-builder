@@ -11,6 +11,8 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
+# shellcheck source=lib/log.sh
+source "$root/lib/log.sh"
 edition="${1:-mokka}"
 
 if [[ ! -d "$root/mkosi.images/desktop/mkosi.profiles/$edition" ]]; then
@@ -57,11 +59,11 @@ checksums() {
   (cd "$work/$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) >"$work/$1.sha256"
 }
 
-echo "==> First run (VERSION=$VERSION)"
+log "First run (VERSION=$VERSION)"
 build_all
 collect a
 
-echo "==> Second run, with the repository metadata of the first"
+log "Second run, with the repository metadata of the first"
 build_all --cache-only=metadata
 collect b
 

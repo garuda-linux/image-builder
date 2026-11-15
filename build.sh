@@ -67,11 +67,8 @@ fi
 export SOURCE_DATE_EPOCH
 readonly VERSION SOURCE_DATE_EPOCH
 
-log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
-die() {
-  printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2
-  exit 1
-}
+# shellcheck source=lib/log.sh
+source lib/log.sh
 
 [[ "$VERSION" =~ ^[0-9]{8}$ ]] || die "VERSION must be a date as YYYYMMDD, not $VERSION"
 

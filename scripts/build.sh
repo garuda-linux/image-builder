@@ -21,10 +21,8 @@ cd "$(git rev-parse --show-toplevel)"
 source lib/env.sh
 load_env_local "$PWD"
 
-die() {
-  printf '\033[1;31m==> ERROR:\033[0m %s\n' "$*" >&2
-  exit 1
-}
+# shellcheck source=lib/log.sh
+source lib/log.sh
 
 run_test() {
   local output="${1:-}"
@@ -76,7 +74,7 @@ import_image() {
     skopeo copy "oci:$oci" "containers-storage:$tag"
     imported=true
   else
-    echo "==> podman is not installed, skipping the podman import" >&2
+    warn "podman is not installed, skipping the podman import"
   fi
 
   local docker
@@ -89,11 +87,11 @@ import_image() {
     rm -r -- "${gzip:?}"
     imported=true
   else
-    echo "==> docker is not installed or not reachable, skipping the docker import" >&2
+    warn "docker is not installed or not reachable, skipping the docker import"
   fi
 
   [[ "$imported" == true ]] || die "neither podman nor docker is available for --tag"
-  echo "==> Imported $tag"
+  log "Imported $tag"
 }
 
 case "${1:-}" in
