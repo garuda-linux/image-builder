@@ -11,8 +11,9 @@
 #   ./build.sh clean old|layers|caches|all [--yes]
 #     removes old images, then the layers, then the caches, then the downloads
 #     (each level includes the ones before it, shows sizes and asks first)
-#   build test iso|vm <edition> | lima | distrobox [test options]
-#   build --test[=openqa] <output> ...
+#   build test iso|vm [edition] | lima | distrobox [test options]
+#   build virt iso|vm [edition] [virt options] | list | rm <domain>...|--all
+#   build --test[=<opt>,...] | --openqa | --virt[=<opt>,...] <output> ...
 #     devshell build only: tests an image as the user, see scripts/build.sh
 #
 # Extra args go to mkosi as is, for example -E KERNEL=linux-lts.
@@ -78,6 +79,8 @@ usage() {
   exit "${1:-0}"
 }
 
+# shellcheck source=lib/args.sh
+source lib/args.sh
 # shellcheck source=lib/timings.sh
 source lib/timings.sh
 # shellcheck source=lib/chaotic.sh
@@ -224,6 +227,7 @@ main() {
   write_secureboot_tree
   prepare_qemu_dir
   mkdir -p "$LOCAL_PACKAGES"
+  normalize_modes
 
   case "$output" in
     distrobox | oci)
@@ -254,8 +258,7 @@ main() {
       local edition="$1"
       shift
       # mkosi splits --profile on commas, so "mokka," would build a broken image
-      [[ -d "mkosi.images/desktop/mkosi.profiles/$edition" ]] ||
-        die "unknown edition $edition, see scripts/editions.sh"
+      check_edition "$PWD" "$edition"
 
       local kernel_args=()
       mapfile -t kernel_args < <(edition_args "$edition" "$@")

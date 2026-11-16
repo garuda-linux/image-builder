@@ -56,6 +56,20 @@ mkosi_build() {
   mkosi --image-version="$VERSION" "$@" "${MKOSI_ARGS[@]}" "${FORCE[@]}" build 2>&1 | mkosi_image_timings
 }
 
+# mkosi copies the modes of mkosi.extra and mkosi.sandbox into the images. A
+# checkout with umask 0000 (the GitLab runner) makes them group and world
+# writable, for example a generator that runs as root.
+normalize_modes() {
+  local files=()
+  mapfile -d '' files < <(find mkosi.conf.d mkosi.images mkosi.profiles mkosi.sandbox mkosi.shared \
+    ! -type l -perm /022 -print0 2>/dev/null)
+
+  ((${#files[@]} > 0)) || return 0
+
+  chmod go-w -- "${files[@]}"
+  log "Removed group and world write permission from ${#files[@]} configuration files"
+}
+
 # Contents, and the path, mode, type and link target of every entry: a chmod
 # or a changed symlink in mkosi.extra must change the stamp as well. No mtime,
 # a checkout has arbitrary ones.

@@ -33,6 +33,16 @@ if [[ -z "$nonexec" ]]; then ok "executable bits"; else
   done <<<"$nonexec"
 fi
 
+# systemd warns about executable unit, autostart and udev files
+exec_config="$(git ls-files -s -- '*.desktop' '*.service' '*.socket' '*.timer' '*.mount' '*.target' '*.rules' \
+  '*.preset' | awk '$1 == "100755" { print $4 }')"
+if [[ -z "$exec_config" ]]; then ok "no executable config files"; else
+  fail "no executable config files"
+  while read -r path; do
+    echo "          executable: $path"
+  done <<<"$exec_config"
+fi
+
 if shellcheck -x "${scripts[@]}"; then ok "shellcheck"; else fail "shellcheck"; fi
 if shfmt -d "${scripts[@]}"; then ok "shfmt"; else fail "shfmt"; fi
 

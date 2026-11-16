@@ -99,6 +99,13 @@ In the development shell, `build` runs the same in the builder container:
 $ build iso dr460nized
 ```
 
+`build` also takes several editions, separated by commas, or `all` for every edition. It runs one build per edition, continues after a failed one and prints a summary at the end. The shared layers are built once. `--test`, `--openqa` and `--virt` need a single edition:
+
+```console
+$ build iso mokka,gnome
+$ build vm all
+```
+
 Arguments after the output and the edition go to mkosi unchanged. For example, to build with another kernel:
 
 ```console
@@ -119,8 +126,11 @@ Options go before the output name:
 | `--container`             | runs the build in the builder container                                                                                                                                 |
 | `--rebuild-builder`       | builds the builder container image again (with `--container`)                                                                                                           |
 | `--explain`               | prints which layers a build would reuse or rebuild and why, then stops                                                                                                  |
-| `--test`, `--test=openqa` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build)                                                                                 |
+| `--test`, `--test=<opts>` | `build` only: tests the new image after the build, see [Testing](testing.md#from-build)                                                                                 |
+| `--openqa`                | `build` only, `iso`: runs openQA on the new ISO, see [Testing](testing.md#from-build)                                                                                   |
+| `--virt`, `--virt=<opts>` | `build` only, `iso` and `vm`: starts the new image as a libvirt domain, see [Testing](testing.md#libvirt)                                                               |
 | `--tag`, `--tag=<name>`   | `build` only, `oci` and `distrobox`: imports the image into rootless podman and, with _sudo_, the docker daemon as `<name>`, default `localhost/garuda-<output>:latest` |
+| `--notify`                | `build` only: a desktop notification with the result and the duration when the build and its tests end, also with `NOTIFY=1`. Goes first, also before `test`            |
 
 The layers are `base`, `root`, `desktop`, `live`, `drivers` and `live-initrd`, see [Incremental builds](#incremental-builds).
 
@@ -183,18 +193,37 @@ The results are in the `mkosi.output/` directory:
 
 `<version>` is the `VERSION` environment variable, the date of the build as `YYYYMMDD` by default. An ISO build removes the older ISOs of the same edition and kernel with their `.manifest`, `.sha256` and `.spdx.json` files, so one ISO per edition stays. The raw disk image of Lima and the VM image is removed once its qcow2 exists. The qcow2 images are compressed with _zstd_, which QEMU reads from version 5.1 on.
 
+### Image tools
+
+The `build` command of the development shell has these commands for the built images:
+
+| Command                                          | Effect                                                                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build ls`                                       | the current images with version, age, size and the number of older versions                                                                   |
+| `build which <package>`                          | the configuration lines that name the package, and its version in every current image, also when only a dependency pulls it in                |
+| `build shell base\|root\|desktop [-- command]`   | a root shell or a command in a layer tree with `systemd-nspawn --ephemeral`. Changes are gone on exit. `desktop` holds the last built edition |
+| `build diff <edition> [old] [new]`               | the package changes between two ISO versions, default the two newest, see [Testing#Package changes](testing.md#package-changes)               |
+| `build verify <edition> [--version=<v>]`         | checks the ISO against its `.sha256` file and the Secure Boot signatures on its ESP                                                           |
+| `build flash <edition> <device> [--version=<v>]` | writes the ISO to a USB stick, see below                                                                                                      |
+
+`build flash` refuses partitions, disks with a mounted filesystem or active swap, which includes the system disk, and disks smaller than the ISO. It shows the disk, warns when it is neither removable nor on USB, and asks before it writes. `--yes` skips the question:
+
+```console
+$ build flash gnome /dev/sdb
+```
+
 After mkosi has built the layers, `build.sh` checks that every unit enabled in one of the preset files of this repository exists in the image. _systemctl preset-all_ skips unknown units without a message, so a typo or a renamed unit would otherwise leave a service off. The build stops and names the unit and the preset file.
 
 ## VM image
 
 `./build.sh vm <edition>` builds the installed system of an edition as a qcow2 disk for virt-manager and other QEMU front ends, and as a base for tests inside it. It is the `desktop` layer of the edition, shared with its ISO build, without the `live` and `drivers` layers, on the disk layout of the Lima image (`mkosi.profiles/vm`). `lib/vm.sh` does on the image what Calamares does on an install:
 
-- the Garuda btrfs subvolumes, `/.snapshots` for snapper, fstab, the ESP of 4 GiB at `/efi`, _systemd-boot_ with UKIs and the kernel options of the edition's `bootloader.conf`, for example the TTY colours of mokka,
+- the Garuda btrfs subvolumes, `/.snapshots` for snapper, fstab, the ESP of 2 GiB at `/efi`, _systemd-boot_ with UKIs and the kernel options of the edition's `bootloader.conf`, for example the TTY colours of mokka,
 - the user `garuda` with the default groups of the edition's `users.conf` and sudo through `wheel`. The password is `garuda`. A notification after the first login asks to change it, once. The password is not expired, because plasmalogin hangs on the password change of an expired one,
 - locale `en_US.UTF-8`, keymap `us`, time zone UTC, hostname `garuda-<edition>`,
 - `pacman-init.service` makes the pacman keyring on the first boot, which postcfg of Calamares does on installs.
 
-The disk has a virtual size of 40 GB and stays small as a file. On every boot, _systemd-repart_ grows the root partition and its btrfs to the end of the disk (`/usr/lib/repart.d/50-root.conf`), so a disk made larger with `qemu-img resize` is used on the next boot. Create the VM in virt-manager with _Import existing disk image_ and UEFI firmware, or try it with `vm-test`, see [Testing#VM image](testing.md#vm-image). The image has no graphics drivers of the hardware detection: the open drivers of QEMU's virtual graphics are enough.
+The disk has a virtual size of 40 GB and stays small as a file. On every boot, _systemd-repart_ grows the root partition and its btrfs to the end of the disk (`/usr/lib/repart.d/50-root.conf`), so a disk made larger with `qemu-img resize` is used on the next boot. Create the VM in virt-manager with _Import existing disk image_ and UEFI firmware, or try it with `vm-test`, see [Testing#VM image](testing.md#vm-image). The image has no graphics drivers of the hardware detection: the open drivers of QEMU's virtual graphics are enough. It has `garuda-hardware-profile-vm`, which the hardware detection installs on a VM, so _spice-vdagent_ (clipboard) and the QEMU guest agent run in virt-manager.
 
 ## Generic UKI
 

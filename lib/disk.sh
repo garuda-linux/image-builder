@@ -82,7 +82,9 @@ disk_uuid() {
 disk_fstab() {
   log "Writing fstab"
   check_presets "$DISK_MNT"
-  genfstab -U "$DISK_MNT" >"$DISK_MNT/etc/fstab"
+
+  # genfstab copies every swap of /proc/swaps, which is the host's in the build container
+  genfstab -U "$DISK_MNT" | awk '$3 != "swap"' >"$DISK_MNT/etc/fstab"
 
   # Without a udev database (build container) genfstab writes device paths
   # instead of UUIDs.

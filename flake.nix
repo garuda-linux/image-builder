@@ -112,10 +112,13 @@
             "git"
             "hadolint"
             "jq"
+            "libnotify"
             "lima"
             "mtools"
+            "openssl"
             "mkosi"
             "qemu"
+            "sbsigntool"
             "skopeo"
             "swtpm"
             "systemd"
@@ -144,13 +147,16 @@
               git
               hadolint
               jq
+              libnotify # notify-send for build --notify
               lima
               mtools
               mkosi
               nixfmt
+              openssl # build verify
               prek
               prettier
               qemu
+              sbsigntool # sbverify for build verify
               ruff
               shellcheck
               shfmt

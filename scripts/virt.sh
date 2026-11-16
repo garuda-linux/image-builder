@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
-# Usage: virt iso|vm <edition> [--new[=<name>]] [--open] [--attach] [--disk] [--ram=<size>]
+# Usage: virt iso|vm [edition] [--new[=<name>]] [--open] [--attach] [--disk] [--secure-boot] [--ram=<size>]
+#                         [--version=<YYYYMMDD>]
+#        virt list
+#        virt rm <domain>...|--all
 #   Starts the ISO or VM image as libvirt domain garuda-<iso|vm>-<edition> on
 #   qemu:///system, replacing an existing one. See docs/testing.md#libvirt.
+#   The edition defaults to EDITION, the CPU count to TEST_CPUS or 4.
 #   --new[=<name>]  another domain instead, default name with a timestamp
 #   --open          open the console in virt-manager
 #   --attach        follow the guest journal, Ctrl+C shuts the domain down
 #   --disk          ISO only: empty 30G install disk
-#   --ram=<size>    MiB or with a G suffix, default TEST_RAM or 6G
+#   --secure-boot   ISO only: Secure Boot on with the Microsoft keys, shim asks
+#                   MokManager to enroll the ISO cert
+#   --ram=<size>    N, NM, NMiB, NG or NGiB, default TEST_RAM or 6G
+#   --version=<v>   an older image of the edition (YYYYMMDD), see build ls
+#   list            the garuda-* domains and their state
+#   rm              removes domains with NVRAM, TPM, volumes and journal,
+#                   --all every garuda-* domain
 # Environment: VIRT_NETWORK, VIRT_POOL (both default "default").
 
 set -euo pipefail
@@ -18,51 +28,97 @@ load_env_local "$root"
 
 # shellcheck source=lib/log.sh
 source "$root/lib/log.sh"
+# shellcheck source=lib/args.sh
+source "$root/lib/args.sh"
+# shellcheck source=lib/images.sh
+source "$root/lib/images.sh"
+
+virsh=(virsh --connect qemu:///system --quiet)
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/garuda-libvirt"
+
+garuda_domains() {
+  "${virsh[@]}" list --all --name | grep '^garuda-' || true
+}
+
+remove_domain() {
+  "${virsh[@]}" destroy "$1" >/dev/null 2>&1 || true
+  "${virsh[@]}" undefine "$1" --nvram --tpm --remove-all-storage >/dev/null
+}
 
 kind="${1:-}"
-edition="${2:-}"
-[[ "$kind" == iso || "$kind" == vm ]] && [[ -n "$edition" && "$edition" != --* ]] ||
-  die "usage: build virt iso|vm <edition> [--new[=<name>]] [--open] [--attach] [--disk] [--ram=<size>]"
-shift 2
+case "$kind" in
+  list)
+    [[ $# -eq 1 ]] || die "usage: build virt list"
+
+    garuda_domains | while read -r domain; do
+      printf '%-40s %s\n' "$domain" "$("${virsh[@]}" domstate "$domain")"
+    done
+
+    exit 0
+    ;;
+  rm)
+    shift
+    [[ $# -ge 1 ]] || die "usage: build virt rm <domain>...|--all"
+
+    domains=("$@")
+    [[ "$*" != --all ]] || mapfile -t domains < <(garuda_domains)
+
+    for domain in "${domains[@]}"; do
+      [[ "$domain" != --* ]] || die "unknown option $domain, --all goes alone"
+      "${virsh[@]}" dominfo "$domain" >/dev/null 2>&1 || die "no domain $domain"
+
+      remove_domain "$domain"
+      rm -rf -- "${state_dir:?}/$domain"
+      log "Removed $domain"
+    done
+
+    exit 0
+    ;;
+  iso | vm) shift ;;
+  *) die "usage: build virt iso|vm [edition] [options], build virt list or build virt rm <domain>...|--all" ;;
+esac
+
+edition="${EDITION:-}"
+if [[ $# -ge 1 && "$1" != --* ]]; then
+  edition="$1"
+  shift
+fi
+
+check_edition "$root" "$edition"
 
 name="garuda-$kind-$edition"
 new=false
 open=false
 attach=false
 disk=false
+secure_boot=false
 ram="${TEST_RAM:-6G}"
+version=""
 for arg in "$@"; do
   case "$arg" in
+    --version=*) version="${arg#--version=}" ;;
     --new) new=true name="$name-$(date +%Y%m%d-%H%M%S)" ;;
     --new=*) new=true name="${arg#--new=}" ;;
     --open) open=true ;;
     --attach) attach=true ;;
     --disk) disk=true ;;
+    --secure-boot) secure_boot=true ;;
     --ram=*) ram="${arg#--ram=}" ;;
     *) die "unknown option $arg" ;;
   esac
 done
 
 [[ "$disk" == false || "$kind" == iso ]] || die "--disk is for the ISO only"
-[[ -d "$root/mkosi.images/desktop/mkosi.profiles/$edition" ]] || die "unknown edition $edition, see scripts/editions.sh"
 
-case "$ram" in
-  *G) ram_mib=$((${ram%G} * 1024)) ;;
-  *) ram_mib="$ram" ;;
-esac
+# The UKIs of the VM image are built on it, unsigned
+[[ "$secure_boot" == false || "$kind" == iso ]] || die "--secure-boot is for the ISO only"
 
-if [[ "$kind" == iso ]]; then
-  source_image="$root/mkosi.output/garuda-$edition.iso"
-  source_format=raw
-else
-  source_image="$root/mkosi.output/garuda-vm-$edition.qcow2"
-  source_format=qcow2
-fi
+ram_mib="$(ram_mib "$ram")"
+source_image="$(image_path "$root" "$kind" "$edition" "$version")"
 
-[[ -e "$source_image" ]] || die "no image at $source_image, run: build $kind $edition"
-source_image="$(readlink -f "$source_image")"
+source_format=qcow2
+[[ "$kind" == vm ]] || source_format=raw
 
-virsh=(virsh --connect qemu:///system --quiet)
 network="${VIRT_NETWORK:-default}"
 pool="${VIRT_POOL:-default}"
 running() { [[ "$("${virsh[@]}" domstate "$name" 2>/dev/null)" == running ]]; }
@@ -73,8 +129,7 @@ running() { [[ "$("${virsh[@]}" domstate "$name" 2>/dev/null)" == running ]]; }
 if "${virsh[@]}" dominfo "$name" >/dev/null 2>&1; then
   [[ "$new" == false ]] || die "a domain $name exists already"
   log "Replacing $name"
-  "${virsh[@]}" destroy "$name" >/dev/null 2>&1 || true
-  "${virsh[@]}" undefine "$name" --nvram --tpm --remove-all-storage >/dev/null
+  remove_domain "$name"
 fi
 
 share="${XDG_DATA_HOME:-$HOME/.local/share}/garuda-libvirt/share"
@@ -104,7 +159,7 @@ fi
 
 # journald in the guest sends its journal to this host vsock port, see systemd.system-credentials(7)
 port=$((20000 + $(cksum <<<"$name" | cut -d' ' -f1) % 10000))
-journal="${XDG_STATE_HOME:-$HOME/.local/state}/garuda-libvirt/$name"
+journal="$state_dir/$name"
 rm -rf -- "$journal"
 mkdir -p "$journal"
 
@@ -129,9 +184,15 @@ if [[ "$attach" == true ]]; then
   receiver=$!
 fi
 
+boot=(--boot "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no")
+if [[ "$secure_boot" == true ]]; then
+  boot=(--boot "uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=yes,firmware.feature1.name=enrolled-keys,firmware.feature1.enabled=yes"
+    --features smm.state=on)
+fi
+
 virt-install --connect qemu:///system --name "$name" \
-  --osinfo archlinux --memory "$ram_mib" --vcpus 4 \
-  --boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no \
+  --osinfo archlinux --memory "$ram_mib" --vcpus "${TEST_CPUS:-4}" \
+  "${boot[@]}" \
   --tpm backend.type=emulator,model=tpm-crb \
   "${disks[@]}" --import \
   --network "network=$network,model=virtio" \
@@ -150,7 +211,7 @@ log "Started $name"
 cat <<EOF
     window  virt-manager --connect qemu:///system --show-domain-console $name
     share   $share, guest: /mnt/garuda-share
-    remove  virsh -c qemu:///system undefine $name --nvram --tpm --remove-all-storage
+    remove  build virt rm $name
 EOF
 
 if [[ "$open" == true ]]; then

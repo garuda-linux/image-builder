@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: repro-check [edition]
-#   Builds the ISO of the edition (default mokka), the generic UKIs and the
+#   Builds the ISO of the edition (default EDITION), the generic UKIs and the
 #   distrobox image twice, each with --fresh and the same VERSION and
 #   SOURCE_DATE_EPOCH, then compares the layer images, the ISO, the UKIs and
 #   the distrobox OCI layout. The second run uses the repository metadata of
@@ -11,14 +11,17 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
+# shellcheck source=lib/env.sh
+source "$root/lib/env.sh"
+load_env_local "$root"
+
 # shellcheck source=lib/log.sh
 source "$root/lib/log.sh"
-edition="${1:-mokka}"
+# shellcheck source=lib/args.sh
+source "$root/lib/args.sh"
 
-if [[ ! -d "$root/mkosi.images/desktop/mkosi.profiles/$edition" ]]; then
-  echo "unknown edition $edition, see scripts/editions.sh" >&2
-  exit 1
-fi
+edition="${1:-${EDITION:-}}"
+check_edition "$root" "$edition"
 
 # SOURCE_DATE_EPOCH is the HEAD commit time, so HEAD must not move
 export VERSION="${VERSION:-$(date +%Y%m%d)}"

@@ -22,7 +22,8 @@ The tests per output:
 $ build test iso gnome
 $ build test iso gnome --openqa
 $ build --test iso gnome
-$ build --test=openqa iso gnome
+$ build --test=cdrom,ram=8G iso gnome
+$ build --openqa iso gnome
 ```
 
 | Command                                   | Runs                                                                      |
@@ -35,9 +36,16 @@ $ build --test=openqa iso gnome
 | `build test oci`                          | `oci-test`                                                                |
 
 - The tests run as the user, outside the builder container. Only `boot-check` uses _sudo_.
-- `--test=openqa` is for ISOs only. The UKI has no test.
+- `--test=<opt>,...` passes options to `iso-test`, `vm-test` or `lima-test`, without the leading `--`.
+- `--openqa` is for ISOs only and does not go together with `--test`. The UKI has no test.
+- `--explain` skips the tests, `--virt` and `--tag`: it builds no image.
+- `EDITION`: the default edition of `build test`, `build virt`, `iso-test`, `vm-test` and `repro-check`. Without it, they need the edition as an argument.
 - `OPENQA_DISTRI`: the openQA tests checkout, default `../openqa-distri`. `run-local.sh` also reads `SCENARIO` and `ISOTOVIDEO_IMAGE`.
-- `TEST_RAM`: default RAM of `iso-test` and `vm-test`. `--ram=` wins.
+- `TEST_RAM`: default RAM of `iso-test`, `vm-test` and `build virt`. `--ram=` wins.
+- `TEST_CPUS`: CPU count of `iso-test`, `vm-test` and `build virt`, default 4.
+- `--version=<YYYYMMDD>` of `iso-test`, `vm-test` and `build virt` boots an older image, see `build ls`. An ISO build removes the older ISOs of its edition and kernel, older VM images stay until `build clean old`.
+- `build --notify test ...` sends a desktop notification when the test ends, see [Building#Options](building.md#options).
+- `build journal iso|vm|virt [domain] [journalctl options]` reads the guest journal of the last `iso-test` or `vm-test` run, or of a libvirt domain started with `--attach`.
 - These variables can go into `.env.local`, see [Building#Local settings](building.md#local-settings).
 
 ## Configuration check
@@ -109,7 +117,7 @@ $ limactl start --name=garuda \
 
 ## Live ISO
 
-`iso-test` boots an ISO with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM (_swtpm_). The VM writes to an overlay, `mkosi.cache/qemu/iso-test-live.qcow2`, so the ISO stays unchanged. `build.sh` makes `mkosi.cache/qemu/` for the owner of the checkout, because `mkosi.cache` belongs to root and the test tools run as the user. Without an argument, it boots the _mokka_ edition:
+`iso-test` boots an ISO with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM (_swtpm_). The VM writes to an overlay, `mkosi.cache/qemu/iso-test-live.qcow2`, so the ISO stays unchanged. `build.sh` makes `mkosi.cache/qemu/` for the owner of the checkout, because `mkosi.cache` belongs to root and the test tools run as the user. Without an edition, it boots `EDITION`, the examples below use that:
 
 ```console
 $ iso-test dr460nized
@@ -119,7 +127,10 @@ The journal of the VM goes to `mkosi.cache/qemu/iso-test-journal/`, from the ini
 
 ```console
 $ journalctl --directory=mkosi.cache/qemu/iso-test-journal -b -u garuda-live-mount.service
+$ build journal iso -b -u garuda-live-mount.service
 ```
+
+`--keep` boots the live overlay and the firmware variables of the last run again. `--serial` puts the console in the terminal instead of a window, for example over SSH.
 
 The ISO boots in two ways, both with UEFI: as a virtio disk, the default, and as a CD drive with `--cdrom`. The firmware finds the same ESP as GPT partition 1 or through the El Torito boot catalog. On a CD drive, the initrd reads the partitions through a loop device. _systemd-vmspawn_ has no USB disk, so the USB stick path is left to openQA:
 
@@ -164,13 +175,19 @@ Check on the installed system:
 
 ## VM image
 
-`vm-test` boots the VM image of an edition, `mkosi.output/garuda-vm-<edition>.qcow2`, with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM. The UKIs of the image are built on it and unsigned, so it does not boot with Secure Boot on. Without an argument, it boots mokka:
+`vm-test` boots the VM image of an edition, `mkosi.output/garuda-vm-<edition>.qcow2`, with _systemd-vmspawn_ in a window, with UEFI without Secure Boot and a virtual TPM. The UKIs of the image are built on it and unsigned, so it does not boot with Secure Boot on. Without an edition, it boots `EDITION`:
 
 ```console
 $ vm-test dr460nized
 ```
 
-The VM writes to an overlay, `mkosi.cache/qemu/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay, firmware variables and TPM of the last run again, for example to check a system after its first login. The journal of the VM goes to `mkosi.cache/qemu/vm-test-journal/`, read it with `journalctl --directory=`.
+The VM writes to an overlay, `mkosi.cache/qemu/vm-test-<edition>.qcow2`, on top of the built image, so the image stays unchanged and every run starts like a fresh download. `--keep` boots the overlay, firmware variables and TPM of the last run again, for example to check a system after its first login. The journal of the VM goes to `mkosi.cache/qemu/vm-test-journal/`, read it with `build journal vm`. `--serial` puts the console in the terminal instead of a window.
+
+`--ssh` lets root log in over vsock with your SSH key, the first one of `ssh-add -L` or `~/.ssh/id_*.pub`. The key goes in as the credential `ssh.authorized_keys.root`, and _systemd-ssh-generator_ in the guest binds _sshd_ to vsock. `vm-test` prints the `ssh` command with `systemd-ssh-proxy`, no port and no network setup needed:
+
+```console
+$ vm-test dr460nized --ssh
+```
 
 Check on the first boot:
 
@@ -187,12 +204,20 @@ Check on the first boot:
 ```console
 $ build virt iso gnome
 $ build virt vm dr460nized --open --attach
+$ build --virt iso gnome
+$ build --virt=open,attach,ram=8G vm dr460nized
+$ build virt list
+$ build virt rm garuda-iso-gnome
+$ build virt rm --all
 ```
 
 - `garuda-<iso|vm>-<edition>` is replaced on every run. `--new[=<name>]` defines another domain.
 - `--open` opens the console of the domain in _virt-manager_.
 - `--attach` follows the guest journal and shuts the domain down on Ctrl+C. journald sends it over vsock (credential `journal.forward_to_socket`) to `systemd-journal-remote`, which keeps it in `~/.local/state/garuda-libvirt/<domain>/`.
-- `--disk` adds an empty 30G install disk to an ISO domain, `--ram=` sets the memory.
+- `--disk` adds an empty 30G install disk to an ISO domain, `--ram=` sets the memory, `--version=` starts an older image.
+- `--secure-boot` turns Secure Boot on for an ISO domain, with the Microsoft keys enrolled by the firmware (feature `enrolled-keys`). The ISO cert is not in the MokList, so _shim_ starts _MokManager_ for the enrollment, as on a PC on the first boot.
+- `build virt list` shows the `garuda-*` domains with their state. `build virt rm <domain>...` removes domains with NVRAM, TPM, volumes and journal, `--all` every `garuda-*` domain. The share stays.
+- `--virt` before the output starts the domain after the build. `--virt=<opt>,...` takes the options without the leading `--`, for example `open,ram=8G`. With `--test`, the domain starts first.
 - The domain writes to an overlay volume in the pool `VIRT_POOL`, network `VIRT_NETWORK` (both `default`, the network has to be active).
 - Clipboard goes through SPICE and `spice-vdagent`. The share `~/.local/share/garuda-libvirt/share` appears in the guest as `/mnt/garuda-share`: the credential `fstab.extra` mounts it at boot.
 
@@ -227,11 +252,13 @@ added    cloud-init 26.2-1
 ...
 ```
 
+`build diff <edition> [old] [new]` does the same for two ISO versions of an edition, default the two newest. Locally there are seldom two: an ISO build removes the older ISO of its edition and kernel with its manifest.
+
 Compare a manifest with the one of an earlier build to see what changed between them. The continuous integration writes this list for every build as the `.manifest.changes` artifact, see [Continuous integration#Jobs](ci.md#jobs).
 
 ## Reproducibility
 
-`repro-check` builds the ISO of an edition, the generic UKIs and the distrobox image twice, each with `--fresh`, and compares the results. Without an argument, it builds _mokka_:
+`repro-check` builds the ISO of an edition, the generic UKIs and the distrobox image twice, each with `--fresh`, and compares the results. Without an argument, it builds `EDITION`:
 
 ```console
 $ repro-check dr460nized
